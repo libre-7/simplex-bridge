@@ -94,7 +94,7 @@ curl -fsSL https://raw.githubusercontent.com/libre-7/simplex-bridge/feat/hermes-
 docker exec hermes-webui /app/venv/bin/hermes gateway restart
 ```
 
-The script only installs `websockets`. No adapter code patches or `plugin.yaml` copies are needed.
+The script only installs `websockets`. No adapter code patches or `plugin.yaml` copies are needed — the adapter ships correctly in Hermes v0.16.0+.
 
 ### Environment variables
 
