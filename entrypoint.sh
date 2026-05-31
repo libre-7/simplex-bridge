@@ -29,7 +29,9 @@ shutdown() {
         fi
         sleep 1
     done
-    [ -n "$SOCAT_PID" ] && kill "$SOCAT_PID" 2>/dev/null || true
+    if [ -n "$SOCAT_PID" ]; then
+        kill "$SOCAT_PID" 2>/dev/null || true
+    fi
     echo "[entrypoint] Goodbye"
     exit 0
 }
@@ -80,7 +82,7 @@ for i in $(seq 1 15); do
         echo "[entrypoint] WebSocket API ready on port 5225"
         break
     fi
-    if [ $i -eq 15 ]; then
+    if [ "$i" -eq 15 ]; then
         echo "[entrypoint] ERROR: simplex-chat failed to start within 15s"
         tail -10 "$DATA_DIR/daemon.log"
         kill $DAEMON_PID 2>/dev/null
