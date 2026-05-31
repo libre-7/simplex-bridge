@@ -29,7 +29,9 @@ shutdown() {
         fi
         sleep 1
     done
-    [ -n "$SOCAT_PID" ] && kill "$SOCAT_PID" 2>/dev/null || true
+    if [ -n "$SOCAT_PID" ]; then
+        kill "$SOCAT_PID" 2>/dev/null || true
+    fi
     echo "[entrypoint] Goodbye"
     exit 0
 }
@@ -80,7 +82,7 @@ for i in $(seq 1 15); do
         echo "[entrypoint] WebSocket API ready on port 5225"
         break
     fi
-    if [ $i -eq 15 ]; then
+    if [ "$i" -eq 15 ]; then
         echo "[entrypoint] ERROR: simplex-chat failed to start within 15s"
         tail -10 "$DATA_DIR/daemon.log"
         kill $DAEMON_PID 2>/dev/null
@@ -138,7 +140,14 @@ asyncio.run(setup())
 fi
 
 # ── Optional socat bridge ──────────────────────────────────────────
+# WARNING: When enabled, the WebSocket API becomes accessible from any
+# IP that can reach the container on 0.0.0.0:$SIMPLEX_SOCAT_PORT.
+# The simplex-chat WebSocket protocol has no built-in authentication.
+# Only enable on trusted networks or behind a firewall.
+# This feature is experimental — use at your own risk.
 if [ -n "$SIMPLEX_SOCAT_PORT" ]; then
+    echo "[entrypoint] *** WARNING: Exposing WebSocket API on 0.0.0.0:$SIMPLEX_SOCAT_PORT ***"
+    echo "[entrypoint] *** No authentication — only use on trusted networks    ***"
     echo "[entrypoint] Starting socat bridge on 0.0.0.0:$SIMPLEX_SOCAT_PORT → 127.0.0.1:5225"
     socat TCP-LISTEN:"$SIMPLEX_SOCAT_PORT",reuseaddr,fork TCP:127.0.0.1:5225 &
     SOCAT_PID=$!
