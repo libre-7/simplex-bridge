@@ -92,10 +92,7 @@ curl -fsSL https://raw.githubusercontent.com/libre-7/simplex-bridge/main/patch-h
 docker exec hermes-webui /app/venv/bin/hermes gateway restart
 ```
 
-The script installs `websockets`, copies the missing `plugin.yaml`, and fixes:
-- **Inbound**: messages were silently dropped (wrong `chatItems` nesting)
-- **Outbound**: replies used CLI format instead of the `/_send` API command
-- **composedMessages**: payload was a single object instead of a JSON array
+The script installs `websockets` (not bundled with Hermes Agent) and copies the `plugin.yaml` file from source to site-packages (the build process drops non-.py files from the installed wheel). No adapter code patches are applied — the upstream SimpleX adapter (Hermes Agent v0.14.0+, commit `09d9724a0`) uses the correct `/_send` API format from day one.
 
 ### Environment variables
 

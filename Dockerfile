@@ -17,8 +17,13 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/* /root/.cache/pip
 
 # Install gosu — Ubuntu equivalent of Alpine's su-exec (static Go binary)
-RUN curl -fsSLo /usr/local/bin/gosu \
-      "https://github.com/tianon/gosu/releases/download/1.17/gosu-amd64" && \
+RUN set -eux; \
+    curl -fsSLo /usr/local/bin/gosu \
+      "https://github.com/tianon/gosu/releases/download/1.17/gosu-amd64"; \
+    curl -fsSLo /tmp/gosu.SHA256SUMS \
+      "https://github.com/tianon/gosu/releases/download/1.17/SHA256SUMS"; \
+    grep 'gosu-amd64$' /tmp/gosu.SHA256SUMS | sed 's|  gosu-amd64$|  /usr/local/bin/gosu|' | sha256sum -c -; \
+    rm -f /tmp/gosu.SHA256SUMS; \
     chmod +x /usr/local/bin/gosu
 
 # Create generic user — UID/GID are overridden at runtime via PUID/PGID
@@ -30,8 +35,11 @@ VOLUME ["/data"]
 
 # Install simplex-chat CLI binary (static Haskell binary, ~72MB, x86_64 only)
 # NOTE: Only linux/amd64 is supported — no ARM binary is published upstream.
-RUN curl -fsSL -o /usr/local/bin/simplex-chat \
-        "https://github.com/simplex-chat/simplex-chat/releases/download/v6.5.1/simplex-chat-ubuntu-24_04-x86_64" && \
+# SHA256 from: https://github.com/simplex-chat/simplex-chat/releases/tag/v6.5.1
+RUN set -eux; \
+    curl -fsSL -o /usr/local/bin/simplex-chat \
+        "https://github.com/simplex-chat/simplex-chat/releases/download/v6.5.1/simplex-chat-ubuntu-24_04-x86_64"; \
+    echo "b1ca4f75a5d8498c66c4bf16db9d8726f685a1644c3617218a0c055cc9dd2f76  /usr/local/bin/simplex-chat" | sha256sum -c -; \
     chmod +x /usr/local/bin/simplex-chat && \
     simplex-chat --version
 
