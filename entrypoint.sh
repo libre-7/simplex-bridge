@@ -138,7 +138,14 @@ asyncio.run(setup())
 fi
 
 # ── Optional socat bridge ──────────────────────────────────────────
+# WARNING: When enabled, the WebSocket API becomes accessible from any
+# IP that can reach the container on 0.0.0.0:$SIMPLEX_SOCAT_PORT.
+# The simplex-chat WebSocket protocol has no built-in authentication.
+# Only enable on trusted networks or behind a firewall.
+# This feature is experimental — use at your own risk.
 if [ -n "$SIMPLEX_SOCAT_PORT" ]; then
+    echo "[entrypoint] *** WARNING: Exposing WebSocket API on 0.0.0.0:$SIMPLEX_SOCAT_PORT ***"
+    echo "[entrypoint] *** No authentication — only use on trusted networks    ***"
     echo "[entrypoint] Starting socat bridge on 0.0.0.0:$SIMPLEX_SOCAT_PORT → 127.0.0.1:5225"
     socat TCP-LISTEN:"$SIMPLEX_SOCAT_PORT",reuseaddr,fork TCP:127.0.0.1:5225 &
     SOCAT_PID=$!

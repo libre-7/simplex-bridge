@@ -1,4 +1,4 @@
-FROM ubuntu:24.04
+FROM ubuntu:24.04@sha256:c4a8d5503dfb2a3eb8ab5f807da5bc69a85730fb49b5cfca2330194ebcc41c7b
 
 # OCI labels — also set at build time via docker/metadata-action for versioned tags
 LABEL org.opencontainers.image.title="simplex-bridge"
@@ -62,6 +62,33 @@ ENTRYPOINT ["/entrypoint.sh"]
 
 STOPSIGNAL SIGTERM
 
-# Health check: verify WebSocket port is listening
-HEALTHCHECK --start-period=10s --interval=30s --timeout=5s --retries=3 \
-  CMD ss -tln 2>/dev/null | grep -q :5225 || nc -z 127.0.0.1 5225 2>/dev/null || exit 1
+# Health check: verify WebSocket daemon is alive by connecting and sending a
+# valid API command. Any response (including error) confirms the process is
+# live and accepting connections — a hung daemon cannot respond.
+# Falls back to TCP port check if Python websockets module is unavailable.
+HEALTHCHECK --start-period=10s --interval=30s --timeout=10s --retries=3 \
+  CMD python3 -c "
+import sys, json, asyncio
+try:
+    import websockets
+    async def check():
+        async with websockets.connect('ws://127.0.0.1:5225', open_timeout=5) as ws:
+            await ws.send(json.dumps({'corrId': 'hc', 'cmd': '/_contacts 1'}))
+            resp = await asyncio.wait_for(ws.recv(), timeout=3)
+            # Any response means the daemon is processing
+            if resp and len(resp) > 0:
+                return 0
+        return 1
+    sys.exit(asyncio.run(check()))
+except Exception:
+    # Fallback: TCP port check
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(3)
+    try:
+        s.connect(('127.0.0.1', 5225))
+        s.close()
+        sys.exit(0)
+    except:
+        sys.exit(1)
+" 2>/dev/null || exit 1

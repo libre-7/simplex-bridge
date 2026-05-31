@@ -1,0 +1,35 @@
+# Git
+.git/
+.gitignore
+.gitattributes
+.github/
+
+# CI/workflows kept for build context but .git excluded
+**/.git/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Local test data
+data/
+
+# Docs and assets (not needed at build time)
+README.md
+icons/
+templates/
+ca_profile.xml
+patch-hermes-simplex.sh
