@@ -1,4 +1,4 @@
-FROM ubuntu:24.04
+FROM ubuntu:24.04@sha256:c4a8d5503dfb2a3eb8ab5f807da5bc69a85730fb49b5cfca2330194ebcc41c7b
 
 # OCI labels — also set at build time via docker/metadata-action for versioned tags
 LABEL org.opencontainers.image.title="simplex-bridge"
@@ -56,12 +56,16 @@ ENV SIMPLEX_DISPLAY_NAME="Simplex Bridge" \
     TZ=UTC
 
 COPY entrypoint.sh /entrypoint.sh
+COPY healthcheck.py /healthcheck.py
 RUN chmod +x /entrypoint.sh
 
 ENTRYPOINT ["/entrypoint.sh"]
 
 STOPSIGNAL SIGTERM
 
-# Health check: verify WebSocket port is listening
-HEALTHCHECK --start-period=10s --interval=30s --timeout=5s --retries=3 \
-  CMD ss -tln 2>/dev/null | grep -q :5225 || nc -z 127.0.0.1 5225 2>/dev/null || exit 1
+# Health check: verify WebSocket daemon is alive by connecting and
+# sending a valid API command. Any response (including error) confirms
+# the process is live and accepting connections.
+# Falls back to TCP port check if Python websockets is unavailable.
+HEALTHCHECK --start-period=10s --interval=30s --timeout=10s --retries=3 \
+  CMD python3 /healthcheck.py

@@ -13,11 +13,27 @@ env:
   PLATFORMS: linux/amd64
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint Dockerfile (hadolint)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+          failure-threshold: error
+
+      - name: Lint shell scripts (shellcheck)
+        run: |
+          shellcheck entrypoint.sh patch-hermes-simplex.sh
+
   build:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+    needs: lint
 
     steps:
       - uses: actions/checkout@v4
