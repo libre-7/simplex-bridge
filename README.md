@@ -11,6 +11,8 @@
 
 Run a SimpleX Chat bot as a Docker container. On first start it creates a bot profile and connection address. Connect your [Hermes Agent](https://github.com/nousresearch/hermes-agent) or custom bot framework via WebSocket.
 
+🧪 **Compatibility note**: This version (`v0.1.0`) was tested with **Hermes Agent v0.15.2 (v2026.5.29.2)**. Work for Hermes Agent v0.16.0+ is on the [`feat/hermes-v0.16.0`](https://github.com/libre-7/simplex-bridge/tree/feat/hermes-v0.16.0) branch.
+
 | Registry | Pull Command |
 |----------|-------------|
 | **GitHub Container Registry** (primary) | `docker pull ghcr.io/libre-7/simplex-bridge:latest` |
@@ -83,9 +85,11 @@ SHA tags never change — the same commit always produces the same binary. The `
 
 ## Integration with Hermes Agent
 
-Hermes Agent ships a built-in SimpleX Chat plugin but the shipped version has bugs that prevent it from working correctly. Apply the one-command patch script after each Hermes container update.
+Hermes Agent ships a built-in SimpleX Chat plugin. The `patch-hermes-simplex.sh` script installs `websockets` and copies the `plugin.yaml` file — no adapter code patches needed for Hermes Agent v0.14.0+.
 
-### One-command patch
+> **⚠️ Tested with Hermes Agent v0.15.2 (v2026.5.29.2)**. Tagged as [`v0.1.0`](https://github.com/libre-7/simplex-bridge/releases/tag/v0.1.0). Work for v0.16.0+ is on the [`feat/hermes-v0.16.0`](https://github.com/libre-7/simplex-bridge/tree/feat/hermes-v0.16.0) branch.
+
+### One-command setup
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/libre-7/simplex-bridge/main/patch-hermes-simplex.sh | bash
