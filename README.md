@@ -22,6 +22,8 @@ Run a SimpleX Chat bot as a Docker container. On first start it creates a bot pr
 SimpleX Chat is a fully private, decentralised messaging network. Unlike Signal, Telegram, or WhatsApp, it has **no persistent user identifiers** — no phone numbers, usernames, or IDs. Every connection uses unique, ephemeral queues. Even the servers cannot determine who is talking to whom.
 
 This container runs the [SimpleX Chat CLI](https://github.com/simplex-chat/simplex-chat) in WebSocket server mode (`-p 5225`), giving your bot framework a JSON-based API to send and receive messages.
+> **⚠️ Hermes Agent compatibility**: The `patch-hermes-simplex.sh` script patches the Simplex adapter that ships with Hermes Agent. It was tested against **Hermes Agent v0.15.2 (v2026.5.29.2)**. Patches have been applied to v0.16.0 (v2026.6.5) but have not yet been verified working. If you are running a newer Hermes version, check the adapter file before applying.
+
 
 ## Quick Start
 
@@ -83,23 +85,24 @@ SHA tags never change — the same commit always produces the same binary. The `
 
 ## Integration with Hermes Agent
 
-Hermes Agent ships a built-in SimpleX Chat plugin but the shipped version has bugs that prevent it from working correctly. Apply the one-command patch script after each Hermes container update.
+Hermes Agent ships a built-in SimpleX Chat plugin that has been working since **v2026.5.16+**. The `patch-hermes-simplex.sh` script handles infrastructure setup (installing `websockets`, copying `plugin.yaml`) — it does not patch adapter code bugs in current Hermes versions.
 
-### One-command patch
+> **⚠️ Hermes Agent compatibility**: The script was tested against **Hermes Agent v0.15.2 (v2026.5.29.2)**. Patches were merged into v0.16.0 (v2026.6.5) after manual conflict resolution but have not yet been verified working. If you are running a newer Hermes version, check the adapter file before applying patches.
+
+### One-command setup
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/libre-7/simplex-bridge/main/patch-hermes-simplex.sh | bash
 docker exec hermes-webui /app/venv/bin/hermes gateway restart
 ```
 
-The script installs `websockets`, copies the missing `plugin.yaml`, and fixes:
-- **Inbound**: messages were silently dropped (wrong `chatItems` nesting)
-- **Outbound**: replies used CLI format instead of the `/_send` API command
-- **composedMessages**: payload was a single object instead of a JSON array
+The script:
+- Installs the `websockets` Python package
+- Copies the `plugin.yaml` manifest into the site-packages
 
 ### Environment variables
 
-Set these on the Hermes WebUI container:
+Set these on the Hermes container:
 
 ```
 SIMPLEX_WS_URL=ws://127.0.0.1:5225
