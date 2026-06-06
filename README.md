@@ -85,18 +85,32 @@ SHA tags never change — the same commit always produces the same binary. The `
 
 ## Integration with Hermes Agent
 
-Hermes Agent ships a built-in SimpleX Chat plugin. The `patch-hermes-simplex.sh` script installs `websockets` and copies the `plugin.yaml` file — no adapter code patches needed for Hermes Agent v0.14.0+.
+Two scripts are provided for different Hermes Agent versions:
 
-> **⚠️ Tested with Hermes Agent v0.15.2 (v2026.5.29.2)**. Tagged as [`v0.1.0`](https://github.com/libre-7/simplex-bridge/releases/tag/v0.1.0). Work for v0.16.0+ is on the [`feat/hermes-v0.16.0`](https://github.com/libre-7/simplex-bridge/tree/feat/hermes-v0.16.0) branch.
+- **Hermes Agent v0.16.0+ (v2026.6.5+)** → `install-websockets.sh`
+- **Hermes Agent v0.15.2 (v2026.5.29.2) or older** → `patch-hermes-simplex.sh` (tagged as [`v0.1.0`](https://github.com/libre-7/simplex-bridge/releases/tag/v0.1.0))
 
-### One-command setup
+Choose the one that matches your Hermes version:
+
+### v0.16.0+: install-websockets.sh
+
+The Simplex adapter works out of the box. Only the `websockets` Python package needs installing:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/libre-7/simplex-bridge/main/install-websockets.sh | bash
+docker exec hermes-webui /app/venv/bin/hermes gateway restart
+```
+
+No adapter code patches or `plugin.yaml` copies are needed.
+
+### v0.15.2 and older: patch-hermes-simplex.sh
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/libre-7/simplex-bridge/main/patch-hermes-simplex.sh | bash
 docker exec hermes-webui /app/venv/bin/hermes gateway restart
 ```
 
-The script installs `websockets` (not bundled with Hermes Agent) and copies the `plugin.yaml` file from source to site-packages (the build process drops non-.py files from the installed wheel). No adapter code patches are applied — the upstream SimpleX adapter (Hermes Agent v0.14.0+, commit `09d9724a0`) uses the correct `/_send` API format from day one.
+The script installs `websockets` and copies the `plugin.yaml` file from source to site-packages (the build process drops non-.py files from the installed wheel). No adapter code patches are applied.
 
 ### Environment variables
 
