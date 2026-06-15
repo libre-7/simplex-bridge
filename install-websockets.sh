@@ -1,5 +1,5 @@
 #!/bin/bash
-# patch-hermes-simplex.sh — Enable SimpleX Chat in Hermes Agent v0.16.0+.
+# install-websockets.sh — Install websockets for SimpleX Chat in Hermes Agent v0.16.0+.
 #
 # The Simplex adapter that ships with Hermes Agent v0.16.0
 # (v2026.6.5+) works out of the box. The only missing piece is the

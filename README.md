@@ -90,7 +90,7 @@ Apply the one-command setup script after each Hermes container update or rebuild
 ### One-command setup
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/libre-7/simplex-bridge/feat/hermes-v0.16.0/install-websockets.sh | bash
+curl -fsSL https://raw.githubusercontent.com/libre-7/simplex-bridge/main/install-websockets.sh | bash
 docker exec hermes-webui /app/venv/bin/hermes gateway restart
 ```
 
