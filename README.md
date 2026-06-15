@@ -11,6 +11,8 @@
 
 Run a SimpleX Chat bot as a Docker container. On first start it creates a bot profile and connection address. Connect your [Hermes Agent](https://github.com/nousresearch/hermes-agent) or custom bot framework via WebSocket.
 
+🧪 **Compatibility note**: This version (`v0.1.0`) was tested with **Hermes Agent v0.15.2 (v2026.5.29.2)**. Work for Hermes Agent v0.16.0+ is on the [`feat/hermes-v0.16.0`](https://github.com/libre-7/simplex-bridge/tree/feat/hermes-v0.16.0) branch.
+
 | Registry | Pull Command |
 |----------|-------------|
 | **GitHub Container Registry** (primary) | `docker pull ghcr.io/libre-7/simplex-bridge:latest` |
