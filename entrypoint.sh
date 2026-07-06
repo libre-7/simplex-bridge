@@ -10,12 +10,26 @@ PUID="${PUID:-99}"
 PGID="${PGID:-100}"
 echo "[entrypoint] Using PUID=$PUID PGID=$PGID"
 
-# Recreate the 'simplex' user/group with the runtime-requested IDs
-if getent group simplex >/dev/null 2>&1; then groupdel simplex 2>/dev/null || true; fi
-if getent passwd simplex >/dev/null 2>&1; then userdel simplex 2>/dev/null || true; fi
-groupadd --system --gid "$PGID" simplex 2>/dev/null || \
-  groupadd --system simplex 2>/dev/null
-useradd --system --no-log-init -g simplex -u "$PUID" --create-home simplex
+# Ensure the 'simplex' user/group matches the runtime-requested IDs.
+# Only recreate if the existing user has a different UID/GID.
+if getent passwd simplex >/dev/null 2>&1; then
+    EXISTING_UID=$(id -u simplex 2>/dev/null)
+    EXISTING_GID=$(id -g simplex 2>/dev/null)
+    if [ "$EXISTING_UID" = "$PUID" ] && [ "$EXISTING_GID" = "$PGID" ]; then
+        echo "[entrypoint] simplex user already has PUID=$PUID PGID=$PGID — no change needed"
+    else
+        echo "[entrypoint] Recreating simplex user (UID $EXISTING_UID → $PUID, GID $EXISTING_GID → $PGID)..."
+        if getent group simplex >/dev/null 2>&1; then groupdel simplex 2>/dev/null || true; fi
+        if getent passwd simplex >/dev/null 2>&1; then userdel simplex 2>/dev/null || true; fi
+        groupadd --system --gid "$PGID" simplex 2>/dev/null || \
+          groupadd --system simplex 2>/dev/null
+        useradd --system --no-log-init -g simplex -u "$PUID" --create-home simplex
+    fi
+else
+    groupadd --system --gid "$PGID" simplex 2>/dev/null || \
+      groupadd --system simplex 2>/dev/null
+    useradd --system --no-log-init -g simplex -u "$PUID" --create-home simplex
+fi
 
 # ── Graceful shutdown handler ──────────────────────────────────────
 shutdown() {
