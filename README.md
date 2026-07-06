@@ -85,9 +85,9 @@ SHA tags never change — the same commit always produces the same binary. The `
 
 ## Integration with Hermes Agent
 
-Hermes Agent v0.16.0+ (v2026.6.5+) ships a working SimpleX Chat plugin out of the box. The only missing piece is the `websockets` Python package, which is not bundled in the Hermes container image.
+Hermes Agent v0.16.0+ (v2026.6.5+) ships a SimpleX Chat platform plugin. However, due to a bug in the Hermes adapter ([upstream issue #46265](https://github.com/NousResearch/hermes-agent/issues/46265)), outbound direct messages use the CLI shortcut format `@<id> text` which the simplex-chat daemon silently rejects over WebSocket — the daemon resolves `@<id>` as a display name lookup, not a contactId lookup. Replies appear in the Hermes WebUI but never reach the SimpleX app.
 
-Apply the one-command setup script after each Hermes container update or rebuild:
+The one-command setup script below installs `websockets` **and** applies the two-line fix to the adapter.
 
 ### One-command setup
 
@@ -96,7 +96,12 @@ curl -fsSL https://raw.githubusercontent.com/libre-7/simplex-bridge/main/install
 docker exec hermes-webui /app/venv/bin/hermes gateway restart
 ```
 
-The script only installs `websockets`. No adapter code patches or `plugin.yaml` copies are needed — the adapter ships correctly in Hermes v0.16.0+.
+The script:
+1. Installs the `websockets` Python package (not bundled in the Hermes image)
+2. Patches the adapter's DM send path to use the correct `/_send @<id> json [...]` format
+3. Verifies the plugin is discoverable
+
+**Re-run after every Hermes container update or rebuild** — the patch is applied to the installed package, which is ephemeral.
 
 ### Environment variables
 
