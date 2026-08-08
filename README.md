@@ -85,9 +85,11 @@ SHA tags never change — the same commit always produces the same binary. The `
 
 ## Integration with Hermes Agent
 
-Hermes Agent v0.16.0+ (v2026.6.5+) ships a SimpleX Chat platform plugin. However, due to a bug in the Hermes adapter ([upstream issue #46265](https://github.com/NousResearch/hermes-agent/issues/46265)), outbound direct messages use the CLI shortcut format `@<id> text` which the simplex-chat daemon silently rejects over WebSocket — the daemon resolves `@<id>` as a display name lookup, not a contactId lookup. Replies appear in the Hermes WebUI but never reach the SimpleX app.
+Hermes Agent v0.16.0+ (v2026.6.5+) ships a SimpleX Chat platform plugin. **Hermes Agent v0.20.0+ (v2026.8.3) includes the DM send fix natively** — the adapter's `send()` and `_standalone_send()` both use the structured `/_send @<id> json [...]` format for direct messages. No patching needed.
 
-The one-command setup script below installs `websockets` **and** applies the two-line fix to the adapter.
+For older Hermes builds (v0.16.x–v0.19.x), the adapter had a bug ([upstream issue #46265](https://github.com/NousResearch/hermes-agent/issues/46265)): outbound DMs used the CLI shortcut format `@<id> text`, which the simplex-chat daemon silently rejects over WebSocket — it resolves `@<id>` as a display-name lookup, not a contactId lookup. Replies appeared in the Hermes WebUI but never reached the SimpleX app.
+
+The one-command setup script below installs `websockets` and, **only when the bug is still present** (pre-0.20.0 Hermes), applies the two-line fix to the adapter. On Hermes 0.20.0+ it detects the native fix and skips the patch.
 
 ### One-command setup
 
@@ -98,10 +100,10 @@ docker exec hermes-webui /app/venv/bin/hermes gateway restart
 
 The script:
 1. Installs the `websockets` Python package (not bundled in the Hermes image)
-2. Patches the adapter's DM send path to use the correct `/_send @<id> json [...]` format
+2. Auto-detects whether the adapter's DM send path is already fixed upstream (Hermes 0.20.0+); patches it only for older builds
 3. Verifies the plugin is discoverable
 
-**Re-run after every Hermes container update or rebuild** — the patch is applied to the installed package, which is ephemeral.
+**Re-run after every Hermes container update or rebuild** — `websockets` is installed into the ephemeral container image and the auto-detect/patch step re-evaluates the installed adapter.
 
 ### Environment variables
 

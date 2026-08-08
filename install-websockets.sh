@@ -4,16 +4,21 @@
 # Always installs the 'websockets' Python package (required by any
 # app that connects to the simplex-chat daemon via WebSocket).
 #
-# If the target container is running Hermes Agent, also:
-#   - Patches the adapter's DM send path (upstream bug #46265)
-#   - Verifies the plugin is discoverable
+# If the target container is running Hermes Agent:
+#   - Checks whether the adapter's DM send path is already fixed
+#     upstream. Hermes 0.20.0+ (2026.8.3) ships the structured
+#     /_send DM format natively; older builds carry upstream bug
+#     #46265 and are patched here.
+#   - Verifies the plugin is discoverable.
 #
-# Upstream bug: https://github.com/NousResearch/hermes-agent/issues/46265
-#   The Hermes adapter uses @<id> text (CLI shortcut) for DMs, which
-#   the simplex-chat daemon silently rejects over WebSocket — it resolves
-#   @<id> as a display name lookup, not a contactId lookup. The fix
-#   rewrites both send() and _standalone_send() to use the correct
-#   /_send @<id> json [...] format.
+# Upstream fix:
+#   https://github.com/NousResearch/hermes-agent/
+#   Hermes 0.20.0+ ships the structured /_send @<id> json format in
+#   both send() and _standalone_send(). Older Hermes builds use the
+#   bare `@<id> text` CLI shortcut, which the simplex-chat daemon
+#   silently rejects over WebSocket (it resolves @<id> as a display-
+#   name lookup, not a contactId lookup) — upstream issue #46265.
+#   This script auto-detects and patches only when the bug is present.
 #
 # Usage: bash install-websockets.sh [container-name]
 #   Default container: hermes-webui
@@ -50,20 +55,25 @@ print(m.__file__)
 " 2>/dev/null) || ADAPTER=$(docker exec "$C" find /app/venv -path "*/simplex/adapter.py" -type f 2>/dev/null | head -1)
 
     if [ -n "$ADAPTER" ]; then
-        echo "  Patching adapter DM send path..."
-
-        # Patch send() — gateway reply path
-        docker exec "$C" sed -i 's/cmd_str = f"@{chat_id} {content}"/composed = json.dumps([{"msgContent": {"type": "text", "text": content}}])\n                cmd_str = f"\/_send @{chat_id} json {composed}"/' "$ADAPTER" 2>/dev/null || true
-
-        # Patch _standalone_send() — cron/send_message tool path
-        docker exec "$C" sed -i 's/cmd_str = f"@{chat_id} {message}"/composed = json.dumps([{"msgContent": {"type": "text", "text": message}}])\n            cmd_str = f"\/_send @{chat_id} json {composed}"/' "$ADAPTER" 2>/dev/null || true
-
-        # Verify
-        HITS=$(docker exec "$C" grep -c 'cmd_str = f"/_send @' "$ADAPTER" 2>/dev/null || echo "0")
-        if [ "$HITS" -ge 2 ]; then
-            echo "  → DM send patch applied ($HITS/2 locations)"
+        # Is the structured /_send fix already present (Hermes >= 0.20.0)?
+        FIXED=$(docker exec "$C" grep -c 'cmd_str = f"/_send @' "$ADAPTER" 2>/dev/null || echo "0")
+        if [ "$FIXED" -ge 2 ]; then
+            echo "  ✓ Adapter already uses structured /_send (fixed upstream in Hermes 0.20.0+) — no patch needed"
         else
-            echo "  ⚠ DM send patch may not be complete ($HITS/2 locations)"
+            echo "  Patching adapter DM send path (pre-0.20.0 Hermes)..."
+            # Patch send() — gateway reply path
+            docker exec "$C" sed -i 's/cmd_str = f"@{chat_id} {content}"/composed = json.dumps([{"msgContent": {"type": "text", "text": content}}])\n                cmd_str = f"\/_send @{chat_id} json {composed}"/' "$ADAPTER" 2>/dev/null || true
+
+            # Patch _standalone_send() — cron/send_message tool path
+            docker exec "$C" sed -i 's/cmd_str = f"@{chat_id} {message}"/composed = json.dumps([{"msgContent": {"type": "text", "text": message}}])\n            cmd_str = f"\/_send @{chat_id} json {composed}"/' "$ADAPTER" 2>/dev/null || true
+
+            # Verify
+            HITS=$(docker exec "$C" grep -c 'cmd_str = f"/_send @' "$ADAPTER" 2>/dev/null || echo "0")
+            if [ "$HITS" -ge 2 ]; then
+                echo "  → DM send patch applied ($HITS/2 locations)"
+            else
+                echo "  ⚠ DM send patch may not be complete ($HITS/2 locations)"
+            fi
         fi
     else
         echo "  ⚠ Simplex adapter not found — skipping patch"
