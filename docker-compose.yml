@@ -1,13 +1,14 @@
 services:
   simplex-bridge:
-    image: ghcr.io/libre-7/simplex-bridge:latest
+    image: ghcr.io/libre-7/simplex-bridge:v0.16.0
     container_name: simplex-bridge
     network_mode: host
     cap_drop:
       - ALL
-    cap_add:
-      - NET_BIND_SERVICE
-      - NET_RAW
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
     volumes:
       - simplex-data:/data
     environment:
