@@ -56,8 +56,11 @@ print(m.__file__)
 
     if [ -n "$ADAPTER" ]; then
         # Is the structured /_send fix already present (Hermes >= 0.20.0)?
-        FIXED=$(docker exec "$C" grep -c 'cmd_str = f"/_send @' "$ADAPTER" 2>/dev/null || echo "0")
-        if [ "$FIXED" -ge 2 ]; then
+        # NOTE: grep -c already prints "0" when no match is found, so no
+        # `|| echo 0` fallback here — appending a second line would break
+        # the numeric comparison below.
+        FIXED=$(docker exec "$C" grep -c 'cmd_str = f"/_send @' "$ADAPTER" 2>/dev/null | tr -d '[:space:]')
+        if [ "${FIXED:-0}" -ge 2 ]; then
             echo "  ✓ Adapter already uses structured /_send (fixed upstream in Hermes 0.20.0+) — no patch needed"
         else
             echo "  Patching adapter DM send path (pre-0.20.0 Hermes)..."
@@ -68,8 +71,8 @@ print(m.__file__)
             docker exec "$C" sed -i 's/cmd_str = f"@{chat_id} {message}"/composed = json.dumps([{"msgContent": {"type": "text", "text": message}}])\n            cmd_str = f"\/_send @{chat_id} json {composed}"/' "$ADAPTER" 2>/dev/null || true
 
             # Verify
-            HITS=$(docker exec "$C" grep -c 'cmd_str = f"/_send @' "$ADAPTER" 2>/dev/null || echo "0")
-            if [ "$HITS" -ge 2 ]; then
+            HITS=$(docker exec "$C" grep -c 'cmd_str = f"/_send @' "$ADAPTER" 2>/dev/null | tr -d '[:space:]')
+            if [ "${HITS:-0}" -ge 2 ]; then
                 echo "  → DM send patch applied ($HITS/2 locations)"
             else
                 echo "  ⚠ DM send patch may not be complete ($HITS/2 locations)"
