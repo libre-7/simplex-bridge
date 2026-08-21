@@ -12,9 +12,9 @@ LABEL org.opencontainers.image.documentation="https://github.com/libre-7/simplex
 # SimpleX Chat uses the SMP protocol — no persistent user IDs, fully private
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        ca-certificates curl iproute2 python3 python3-pip socat sudo tzdata && \
-    pip3 install --break-system-packages websockets && \
-    rm -rf /var/lib/apt/lists/* /root/.cache/pip
+        ca-certificates curl iproute2 python3 python3-pip socat tzdata && \
+    pip3 install --no-cache-dir --break-system-packages websockets==17.0.1 && \
+    rm -rf /var/lib/apt/lists/*
 
 # Install gosu — Ubuntu equivalent of Alpine's su-exec (static Go binary)
 RUN set -eux; \
