@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -e -o pipefail
 
 DATA_DIR="/data"
 DB_PREFIX="$DATA_DIR/simplex"
@@ -19,7 +19,7 @@ useradd --system --no-log-init -g simplex -u "$PUID" --create-home simplex
 
 # ── Graceful shutdown handler ──────────────────────────────────────
 shutdown() {
-    local signal=$1
+    signal=$1
     echo "[entrypoint] Received $signal — forwarding to simplex-chat..."
     kill "-$signal" "$DAEMON_PID" 2>/dev/null || true
     for i in $(seq 1 10); do
@@ -29,7 +29,7 @@ shutdown() {
         fi
         sleep 1
     done
-    if [ -n "$SOCAT_PID" ]; then
+    if [ -n "${SOCAT_PID:-}" ]; then
         kill "$SOCAT_PID" 2>/dev/null || true
     fi
     echo "[entrypoint] Goodbye"
@@ -48,56 +48,57 @@ fi
 # Fix data dir ownership so the runtime user can write to it
 chown -R "$PUID:$PGID" "$DATA_DIR"
 
-# ── Build extra flags ──────────────────────────────────────────────
-EXTRA_FLAGS=""
+# ── Build extra flags (array — no shell re-parsing of env values) ──
+FLAGS=(-d "$DATA_DIR/simplex" -p 5225)
 
 if [ ! -f "$DB_FILE" ]; then
     echo "[entrypoint] First run: creating bot profile..."
-    EXTRA_FLAGS="$EXTRA_FLAGS --create-bot-display-name \"$SIMPLEX_DISPLAY_NAME\""
+    FLAGS+=(--create-bot-display-name "$SIMPLEX_DISPLAY_NAME")
     if [ "$SIMPLEX_FILES_ENABLED" = "true" ]; then
-        EXTRA_FLAGS="$EXTRA_FLAGS --create-bot-allow-files"
+        FLAGS+=(--create-bot-allow-files)
     fi
 fi
 
 if [ "$SIMPLEX_MARK_READ" = "true" ]; then
-    EXTRA_FLAGS="$EXTRA_FLAGS -r"
+    FLAGS+=(-r)
 fi
 
 if [ "$SIMPLEX_TOR" = "true" ]; then
-    EXTRA_FLAGS="$EXTRA_FLAGS -x"
+    FLAGS+=(-x)
 fi
 
 # ── Start simplex-chat daemon as non-root user ─────────────────────
 echo "[entrypoint] Starting simplex-chat daemon as UID $PUID..."
-CMD="simplex-chat -d \"$DATA_DIR/simplex\" -p 5225 $EXTRA_FLAGS"
-echo "[entrypoint]   $CMD"
+echo "[entrypoint]   simplex-chat ${FLAGS[*]}"
 
-gosu "$PUID:$PGID" sh -c "$CMD > \"$DATA_DIR/daemon.log\" 2>&1" &
+gosu "$PUID:$PGID" simplex-chat "${FLAGS[@]}" > "$DATA_DIR/daemon.log" 2>&1 &
 DAEMON_PID=$!
 echo "[entrypoint]   PID: $DAEMON_PID"
 
 for i in $(seq 1 15); do
-    if ss -tln 2>/dev/null | grep -q :5225 || \
-       nc -z 127.0.0.1 5225 2>/dev/null; then
+    if ss -tln 2>/dev/null | grep -q :5225; then
         echo "[entrypoint] WebSocket API ready on port 5225"
         break
     fi
     if [ "$i" -eq 15 ]; then
         echo "[entrypoint] ERROR: simplex-chat failed to start within 15s"
         tail -10 "$DATA_DIR/daemon.log"
-        kill $DAEMON_PID 2>/dev/null
+        kill "$DAEMON_PID" 2>/dev/null || true
         exit 1
     fi
     sleep 1
 done
 
-# ── First-run setup: bot address via WebSocket API ─────────────────
 SETUP_MARKER="$DATA_DIR/.setup-complete"
 if [ ! -f "$SETUP_MARKER" ]; then
     sleep 2
     echo "[entrypoint] Setting up bot address..."
-    python3 -c "
-import asyncio, json, websockets, os
+    SETUP_LOG="$DATA_DIR/setup.log"
+    # Run as the daemon user; capture exit status explicitly — the sed pipe
+    # would otherwise mask python's exit code (sed always exits 0).
+    if gosu "$PUID:$PGID" python3 - <<'PYEOF' > "$SETUP_LOG" 2>&1
+import asyncio, json, os, sys
+import websockets
 
 async def setup():
     async with websockets.connect('ws://127.0.0.1:5225', open_timeout=10) as ws:
@@ -109,16 +110,13 @@ async def setup():
         for _ in range(10):
             try:
                 evt = await asyncio.wait_for(ws.recv(), timeout=1)
-                data = json.loads(evt)
-                resp = data.get('resp', {})
-                if resp.get('type') == 'userContactLinkCreated':
-                    link = resp.get('connLinkContact', {})
-                    address = link.get('connFullLink', link.get('connShortLink', ''))
-                elif data.get('corrId') == 's2' and resp.get('type') == 'userContactLinkCreated':
-                    link = resp.get('connLinkContact', {})
-                    address = link.get('connFullLink', link.get('connShortLink', ''))
             except asyncio.TimeoutError:
                 break
+            data = json.loads(evt)
+            resp = data.get('resp', {})
+            if resp.get('type') == 'userContactLinkCreated':
+                link = resp.get('connLinkContact', {})
+                address = link.get('connFullLink', link.get('connShortLink', ''))
         if os.environ.get('SIMPLEX_AUTO_ACCEPT', 'true') == 'true':
             settings = json.dumps({'businessAddress': False, 'autoAccept': {'acceptIncognito': False}})
             await ws.send(json.dumps({'corrId': 's3', 'cmd': f'/_address_settings 1 {settings}'}))
@@ -133,10 +131,19 @@ async def setup():
             print(f'[setup] Bot address: {address[:80]}...')
             with open('/data/bot_address.txt', 'w') as f:
                 f.write(address + '\n')
+        else:
+            print('[setup] ERROR: no contact link received — setup will retry on next start')
+            sys.exit(1)
 
 asyncio.run(setup())
-" 2>&1 | sed 's/^/[setup] /'
-    touch "$SETUP_MARKER"
+PYEOF
+    then
+        sed 's/^/[setup] /' "$SETUP_LOG"
+        touch "$SETUP_MARKER"
+    else
+        echo "[entrypoint] WARNING: first-run setup did not complete — will retry on next restart"
+        tail -5 "$SETUP_LOG" | sed 's/^/[setup] /'
+    fi
 fi
 
 # ── Optional socat bridge ──────────────────────────────────────────
@@ -146,10 +153,20 @@ fi
 # Only enable on trusted networks or behind a firewall.
 # This feature is experimental — use at your own risk.
 if [ -n "$SIMPLEX_SOCAT_PORT" ]; then
+    case "$SIMPLEX_SOCAT_PORT" in
+        ''|*[!0-9]*)
+            echo "[entrypoint] ERROR: SIMPLEX_SOCAT_PORT must be a numeric TCP port (got: '$SIMPLEX_SOCAT_PORT')"
+            exit 1
+            ;;
+    esac
+    if [ "$SIMPLEX_SOCAT_PORT" -lt 1 ] || [ "$SIMPLEX_SOCAT_PORT" -gt 65535 ]; then
+        echo "[entrypoint] ERROR: SIMPLEX_SOCAT_PORT must be between 1 and 65535 (got: $SIMPLEX_SOCAT_PORT)"
+        exit 1
+    fi
     echo "[entrypoint] *** WARNING: Exposing WebSocket API on 0.0.0.0:$SIMPLEX_SOCAT_PORT ***"
     echo "[entrypoint] *** No authentication — only use on trusted networks    ***"
     echo "[entrypoint] Starting socat bridge on 0.0.0.0:$SIMPLEX_SOCAT_PORT → 127.0.0.1:5225"
-    socat TCP-LISTEN:"$SIMPLEX_SOCAT_PORT",reuseaddr,fork TCP:127.0.0.1:5225 &
+    socat "TCP-LISTEN:$SIMPLEX_SOCAT_PORT,reuseaddr,fork" TCP:127.0.0.1:5225 &
     SOCAT_PID=$!
     echo "[entrypoint]   socat PID: $SOCAT_PID"
 fi
@@ -160,8 +177,8 @@ echo "=== SimpleX Bridge ready ==="
 echo "  Bot name: $SIMPLEX_DISPLAY_NAME"
 echo "  Running as: PUID=$PUID PGID=$PGID"
 if [ -f "$DATA_DIR/bot_address.txt" ]; then
-    echo "  Bot address: $(cat $DATA_DIR/bot_address.txt)"
+    echo "  Bot address: $(cat "$DATA_DIR/bot_address.txt")"
 fi
 echo ""
 
-wait $DAEMON_PID
+wait "$DAEMON_PID"
