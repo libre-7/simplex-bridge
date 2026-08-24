@@ -74,6 +74,101 @@ The Unraid template defaults to host networking for simplex-bridge.
 
 > ⚠️ The WebSocket API has no authentication. Exposing it on `0.0.0.0` makes it reachable from any IP that can reach the container — only do this on trusted networks or behind a firewall. Prefer host networking when both containers run on the same host.
 
+#### Securing the socat port (verified recipes)
+
+Both recipes below were verified live against a v1.0.1 image: a plain WebSocket upgrade request (`HTTP/1.1 101`) succeeds through each mitigation, and unauthorized paths are blocked.
+
+**Option A — loopback-only publish + firewall allowlist (recommended, no extra software)**
+
+Publish socat's port bound to loopback only, then open it selectively with a firewall rule. Even with no firewall configured, binding to `127.0.0.1` already prevents any other host from reaching the port (verified: connection refused from the host's LAN IP):
+
+```bash
+# Bind publish to loopback only — unreachable from other hosts by construction
+docker run -d --name simplex-bridge \
+  -p 127.0.0.1:5226:5226 \
+  -e SIMPLEX_SOCAT_PORT=5226 \
+  ghcr.io/libre-7/simplex-bridge:v1.0.1
+
+# Verify only loopback answers (expect HTTP/1.1 101):
+curl -i -H "Upgrade: websocket" -H "Connection: Upgrade" \
+  -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" -H "Sec-WebSocket-Version: 13" \
+  http://127.0.0.1:5226/
+
+# If remote clients DO need access, add an iptables allowlist instead of
+# publishing on 0.0.0.0 (Docker's DOCKER-USER chain survives restarts):
+sudo iptables -I DOCKER-USER -p tcp --dport 5226 ! -s 192.168.1.0/24 -j DROP
+```
+
+On Unraid, the equivalent is to leave the container's Network Type on `bridge`, keep the published port mapped as above (`127.0.0.1` in the custom mapping), or keep host networking and use Settings → Network Services / firewall rules to restrict port 5225/5226 to trusted subnets. On a Tailscale/WireGuard tailnet, publish on `127.0.0.1` and let clients reach the port through a tailscale serve forward (`tailscale serve --bg --tcp 5226 tcp://127.0.0.1:5226`) so only tailnet peers can connect.
+
+**Option B — nginx basic-auth reverse proxy (auth front for untrusted networks)**
+
+An nginx sidecar adds HTTP Basic auth in front of the WebSocket while preserving the upgrade handshake (both verified below):
+
+```bash
+# Shared network so nginx can resolve the bot container by name
+docker network create simplex-net
+
+# Bot: socat exposed ONLY inside the shared network (no -p publish at all)
+docker run -d --name simplex-bridge --network simplex-net \
+  -e SIMPLEX_SOCAT_PORT=5226 \
+  ghcr.io/libre-7/simplex-bridge:v1.0.1
+
+mkdir -p ./secnginx && cd ./secnginx
+printf 'botuser:%s\n' "$(openssl passwd -apr1 'CHANGE-ME')" > .htpasswd
+```
+
+`nginx.conf`:
+
+```nginx
+worker_processes 1;
+events {}
+http {
+  map $http_upgrade $connection_upgrade { default upgrade; "" close; }
+  include /etc/nginx/mime.types;
+  include /etc/nginx/conf.d/*.conf;
+}
+```
+
+`conf.d/default.conf`:
+
+```nginx
+server {
+  listen 8080;
+  location / {
+    auth_basic "SimpleX Bot";
+    auth_basic_user_file /etc/nginx/.htpasswd;
+    proxy_pass http://simplex-bridge:5226;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+    proxy_set_header Host $host;
+    proxy_read_timeout 3600s;   # long-lived bot socket
+  }
+}
+```
+
+Start and verify:
+
+```bash
+docker run -d --name simplex-auth --network simplex-net -p 8080:8080 \
+  -v "$PWD/nginx.conf:/etc/nginx/nginx.conf:ro" \
+  -v "$PWD/conf.d/default.conf:/etc/nginx/conf.d/default.conf:ro" \
+  -v "$PWD/.htpasswd:/etc/nginx/.htpasswd:ro" nginx:alpine
+
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/          # -> 401 (no creds)
+curl -s -o /dev/null -w '%{http_code}\n' -u botuser:wrong \
+  -H "Upgrade: websocket" -H "Connection: Upgrade" \
+  -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
+  -H "Sec-WebSocket-Version: 13" http://localhost:8080/                 # -> 401 (bad creds)
+curl -s -i -u botuser:'CHANGE-ME' \
+  -H "Upgrade: websocket" -H "Connection: Upgrade" \
+  -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
+  -H "Sec-WebSocket-Version: 13" http://localhost:8080/ | head -1       # -> HTTP/1.1 101 WebSocket Protocol Handshake
+```
+
+Point Hermes Agent at `ws://<proxy-host>:8080` with the same credentials embedded as `ws://botuser:CHANGE-ME@<proxy-host>:8080`. Note that Basic auth over plain HTTP sends credentials base64-encoded — terminate TLS in front of nginx (e.g. Caddy automatic HTTPS or nginx `listen 443 ssl`) when the path leaves your LAN.
+
 ### Tagging & Pinning
 
 For production stability, pin to a SHA tag (immutable):

@@ -1,0 +1,58 @@
+name: Base image refresh
+
+# S5 mitigation: the Dockerfile pins ubuntu:24.04 by digest, so CVE fixes in
+# the base image never flow until someone re-pins. This workflow checks
+# monthly whether upstream moved and, if so, opens a PR updating the pin.
+# The digest pin itself is kept — we automate re-pinning, not floating tags.
+
+on:
+  schedule:
+    - cron: "0 6 1 * *" # monthly, 1st of the month 06:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh-pin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Resolve current ubuntu:24.04 digest
+        id: digest
+        run: |
+          CURRENT=$(skopeo inspect docker://ubuntu:24.04 --format '{{.Digest}}')
+          echo "digest=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "Upstream ubuntu:24.04 digest: $CURRENT"
+
+      - name: Extract pinned digest from Dockerfile
+        id: pinned
+        run: |
+          PINNED=$(awk 'NR==1 {match($0, /@sha256:[0-9a-f]+/); print substr($0, RSTART+8, RLENGTH-8)}' Dockerfile)
+          echo "pinned=$PINNED" >> "$GITHUB_OUTPUT"
+          echo "Pinned digest in Dockerfile: $PINNED"
+
+      - name: Open PR when the digest moved
+        if: steps.digest.outputs.digest != steps.pinned.outputs.pinned
+        env:
+          NEW_DIGEST: ${{ steps.digest.outputs.digest }}
+        uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b98283caceb4bc9 # v7.0.8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: chore/base-image-refresh
+          delete-branch: true
+          title: "chore: refresh ubuntu:24.04 base image digest"
+          body: |
+            Automated monthly base-image refresh (`.github/workflows/base-refresh.yml`).
+
+            Upstream `ubuntu:24.04` digest changed:
+
+            - old: `sha256:${{ steps.pinned.outputs.pinned }}`
+            - new: `${{ steps.digest.outputs.digest }}`
+
+            This updates the digest pin on Dockerfile line 1 so CVE fixes in the
+            base image flow into builds. Review, merge, and let CI publish.
+          commit-message: "chore: refresh ubuntu:24.04 base image digest to ${{ steps.digest.outputs.digest }}"
+          add-paths: Dockerfile
