@@ -42,8 +42,8 @@ cat $(docker volume inspect simplex-data --format '{{.Mountpoint}}')/bot_address
 
 | Registry | Pull URL | Latest Tag |
 |----------|----------|------------|
+| **GitHub Container Registry** (primary) | `docker pull ghcr.io/libre-7/simplex-bridge` | `latest`, `sha-<commit>`, `v*` |
 | **Docker Hub** | `docker pull libre7/simplex-bridge` | `latest`, `sha-<commit>` |
-| **GitHub Container Registry** | `docker pull ghcr.io/libre-7/simplex-bridge` | `latest`, `sha-<commit>`, `v*` |
 
 Tags are automatically built and pushed on every push to `main`:
 - **`latest`** — most recent commit on `main`
@@ -199,7 +199,7 @@ SimpleX has no central servers that know who users are. No phone numbers, no use
 Port 5225 for the WebSocket API. Host networking is required — no port mapping is needed (both containers share loopback).
 
 **Q: Can I run multiple bots?**
-Yes — use separate data directories and ports.
+Not within one container. The WebSocket port is fixed at 5225 — there is no port variable. To run multiple bots, run separate containers, each with its own `/data` volume and its own network namespace (e.g. separate hosts/VMs). If you use the bridge networking mode, distinct published ports via `SIMPLEX_SOCAT_PORT` are possible — but note that socat mode is unauthenticated; see the warnings in Network Configuration.
 
 ## Building from Source
 
