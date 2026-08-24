@@ -59,7 +59,7 @@ Tags are automatically built and pushed on every push to `main`:
 | `SIMPLEX_FILES_ENABLED` | `true` | Allow file transfers from contacts |
 | `SIMPLEX_MARK_READ` | `true` | Auto-mark received messages as read |
 | `SIMPLEX_TOR` | `false` | Route through Tor SOCKS5 proxy (requires Tor on port 9050) |
-| `SIMPLEX_SOCAT_PORT` | (empty) | Set to `5225` to expose WebSocket on all interfaces via socat bridge |
+| `SIMPLEX_SOCAT_PORT` | (empty) | Set to e.g. `5226` to expose WebSocket on all interfaces via socat bridge (must differ from 5225) |
 | `PUID` | `99` | User ID for file permissions (Unraid: 99) |
 | `PGID` | `100` | Group ID for file permissions (Unraid: 100) |
 | `TZ` | `UTC` | Container timezone |
@@ -70,7 +70,9 @@ The daemon binds to `127.0.0.1:5225` only (security by design). **Both container
 
 The Unraid template defaults to host networking for simplex-bridge.
 
-**Bridge networking via socat** (under investigation): Set `SIMPLEX_SOCAT_PORT=5225` to start a socat proxy that exposes `0.0.0.0:5225`. When using bridge, change the network type to `bridge` and map `-p 5225:5225`. Note: this is not yet confirmed working in testing.
+**Bridge networking via socat** (verified working, v1.0.1 image): Set `SIMPLEX_SOCAT_PORT=<port>` to start a socat proxy that exposes `0.0.0.0:<port>` → `127.0.0.1:5225`. **The port must be anything other than `5225`** — the daemon already binds `127.0.0.1:5225`, so socat's bind of the same port fails with "Address already in use" (use `5226`, for example). Then switch to bridge networking and publish that port: change the network type to `bridge` and map `-p <port>:<port>` (e.g. `-p 5226:5226`).
+
+> ⚠️ The WebSocket API has no authentication. Exposing it on `0.0.0.0` makes it reachable from any IP that can reach the container — only do this on trusted networks or behind a firewall. Prefer host networking when both containers run on the same host.
 
 ### Tagging & Pinning
 
@@ -199,7 +201,7 @@ SimpleX has no central servers that know who users are. No phone numbers, no use
 Port 5225 for the WebSocket API. Host networking is required — no port mapping is needed (both containers share loopback).
 
 **Q: Can I run multiple bots?**
-Not within one container. The WebSocket port is fixed at 5225 — there is no port variable. To run multiple bots, run separate containers, each with its own `/data` volume and its own network namespace (e.g. separate hosts/VMs). If you use the bridge networking mode, distinct published ports via `SIMPLEX_SOCAT_PORT` are possible — but note that socat mode is unauthenticated; see the warnings in Network Configuration.
+Not within one container. The WebSocket port is fixed at 5225 — there is no port variable. To run multiple bots, run separate containers, each with its own `/data` volume and its own network namespace (e.g. separate hosts/VMs). If you use the bridge networking mode, distinct published ports via `SIMPLEX_SOCAT_PORT` are possible (use a port other than 5225; see Network Configuration) — but note that socat mode is unauthenticated; see the warnings in Network Configuration.
 
 ## Building from Source
 
