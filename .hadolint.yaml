@@ -1,0 +1,3 @@
+ignored:
+  - DL3008   # Pin versions in apt-get install (pinned via base image SHA)
+  - DL3059   # Multiple consecutive RUN instructions (keeps layers cacheable)
