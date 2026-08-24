@@ -25,8 +25,11 @@
 
     The daemon binds to 127.0.0.1 only. By default, set network type to
     "Host" for Hermes Agent to connect via localhost. Alternatively, set
-    SIMPLEX_SOCAT_PORT=5225 to expose the WebSocket port externally via
-    socat bridge (standard bridge networking then works).
+    SIMPLEX_SOCAT_PORT to a port OTHER than 5225 (e.g. 5226) to expose
+    the WebSocket externally via socat bridge — then switch to standard
+    bridge networking and publish that port. Note: the WebSocket API has
+    no authentication; only expose it on trusted networks.
+    See README "Network Configuration" for details.
 
     Compatible with Hermes Agent's built-in SimpleX Chat plugin (no code
     changes needed — enable via SIMPLEX_WS_URL env var).
@@ -42,7 +45,7 @@
 
   <Config Name="SIMPLEX_DISPLAY_NAME" Target="SIMPLEX_DISPLAY_NAME" Type="Variable" Default="Simplex Bridge" Description="Display name shown to contacts when they connect to this bot" Mode="" Display="always" Required="false" Mask="false"/>
   <Config Name="SIMPLEX_AUTO_ACCEPT" Target="SIMPLEX_AUTO_ACCEPT" Type="Variable" Default="true" Description="Auto-accept incoming contact requests (set false to require manual approval)" Mode="" Display="always" Required="false" Mask="false"/>
-  <Config Name="SIMPLEX_SOCAT_PORT" Target="SIMPLEX_SOCAT_PORT" Type="Variable" Default="" Description="Set to 5225 to expose WebSocket port on all interfaces via socat bridge. Leave empty for host networking only (127.0.0.1)." Mode="" Display="always" Required="false" Mask="false"/>
+  <Config Name="SIMPLEX_SOCAT_PORT" Target="SIMPLEX_SOCAT_PORT" Type="Variable" Default="" Description="Optional socat bridge port — MUST be other than 5225 (e.g. 5226); exposes WebSocket on all interfaces. Leave empty for host networking only (127.0.0.1). Unauthenticated: trusted networks only." Mode="" Display="always" Required="false" Mask="false"/>
   <Config Name="SIMPLEX_FILES_ENABLED" Target="SIMPLEX_FILES_ENABLED" Type="Variable" Default="true" Description="Allow file transfers from contacts to the bot" Mode="" Display="advanced" Required="false" Mask="false"/>
   <Config Name="SIMPLEX_MARK_READ" Target="SIMPLEX_MARK_READ" Type="Variable" Default="true" Description="Auto-mark received messages as read" Mode="" Display="advanced" Required="false" Mask="false"/>
   <Config Name="SIMPLEX_TOR" Target="SIMPLEX_TOR" Type="Variable" Default="false" Description="Route messaging connections through Tor SOCKS5 proxy (requires Tor running on host)" Mode="" Display="advanced" Required="false" Mask="false"/>
@@ -50,7 +53,7 @@
   <Config Name="PUID" Target="PUID" Type="Variable" Default="99" Description="User ID for file permissions (Unraid default: 99)" Mode="" Display="advanced" Required="false" Mask="false"/>
   <Config Name="PGID" Target="PGID" Type="Variable" Default="100" Description="Group ID for file permissions (Unraid default: 100)" Mode="" Display="advanced" Required="false" Mask="false"/>
 
-  <Config Name="Port 5225" Target="5225" Type="Port" Default="5225" Description="SimpleX WebSocket API — Hermes Agent connects here" Mode="tcp" Display="always" Required="false" Mask="false"/>
+  <Config Name="Port 5225" Target="5225" Type="Port" Default="5225" Description="SimpleX WebSocket API — informational only under default host networking (port mapping is a no-op); only used when bridge networking + SIMPLEX_SOCAT_PORT are configured" Mode="tcp" Display="always" Required="false" Mask="false"/>
 
   <Config Name="Appdata" Target="/data" Type="Path" Default="/mnt/user/appdata/simplex-bridge" Description="Persistent data: chat database, connection keys, bot address, attachments" Mode="rw" Display="always" Required="false" Mask="false"/>
 
@@ -72,6 +75,10 @@
   <LogMaxFile>3</LogMaxFile>
 
   <Changes>
+### 2026.08.24
+- Corrected socat bridge docs: verified working, but SIMPLEX_SOCAT_PORT must differ from 5225 (daemon already binds 127.0.0.1:5225). Added unauthenticated-API warning.
+- Annotated Port 5225 field as informational-only under default host networking.
+
 ### 2026.05.23
 - Initial CA release.
 - Fixed template format for Unraid v2 schema (Config elements with Type attribute).
