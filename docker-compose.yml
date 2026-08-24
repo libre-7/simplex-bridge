@@ -1,6 +1,6 @@
 services:
   simplex-bridge:
-    image: ghcr.io/libre-7/simplex-bridge:v0.16.0
+    image: ghcr.io/libre-7/simplex-bridge@sha256:04cdd16a4315df11fd1c44d3ea26ffc17cc75b8d33249ba2d5987a7900911153 # v0.16.0
     container_name: simplex-bridge
     network_mode: host
     cap_drop:
