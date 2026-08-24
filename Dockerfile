@@ -1,4 +1,4 @@
-FROM ubuntu:24.04@sha256:c4a8d5503dfb2a3eb8ab5f807da5bc69a85730fb49b5cfca2330194ebcc41c7b
+FROM ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517
 
 # OCI labels — also set at build time via docker/metadata-action for versioned tags
 LABEL org.opencontainers.image.title="simplex-bridge"
@@ -38,11 +38,11 @@ VOLUME ["/data"]
 
 # Install simplex-chat CLI binary (static Haskell binary, ~72MB, x86_64 only)
 # NOTE: Only linux/amd64 is supported — no ARM binary is published upstream.
-# SHA256 from: https://github.com/simplex-chat/simplex-chat/releases/tag/v6.5.1
+# SHA256 from: https://github.com/simplex-chat/simplex-chat/releases/tag/v7.0.1
 RUN set -eux; \
     curl -fsSL -o /usr/local/bin/simplex-chat \
-        "https://github.com/simplex-chat/simplex-chat/releases/download/v6.5.1/simplex-chat-ubuntu-24_04-x86_64"; \
-    echo "b1ca4f75a5d8498c66c4bf16db9d8726f685a1644c3617218a0c055cc9dd2f76  /usr/local/bin/simplex-chat" | sha256sum -c -; \
+        "https://github.com/simplex-chat/simplex-chat/releases/download/v7.0.1/simplex-chat-ubuntu-24_04-x86_64"; \
+    echo "85272a558cd69059f0dfa99634b2c5cedb17f374460c9cec44d9777af10050c1  /usr/local/bin/simplex-chat" | sha256sum -c -; \
     chmod +x /usr/local/bin/simplex-chat && \
     simplex-chat --version
 

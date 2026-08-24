@@ -65,6 +65,11 @@ chown -R "$PUID:$PGID" "$DATA_DIR"
 # ── Build extra flags (array — no shell re-parsing of env values) ──
 FLAGS=(-d "$DATA_DIR/simplex" -p 5225)
 
+# v7.x auto-migrates older DB schemas non-interactively with this flag;
+# without it a v6-era data dir triggers an interactive Continue (y/N) prompt
+# that dies headless.
+FLAGS+=(-y)
+
 if [ ! -f "$DB_FILE" ]; then
     echo "[entrypoint] First run: creating bot profile..."
     FLAGS+=(--create-bot-display-name "$SIMPLEX_DISPLAY_NAME")
