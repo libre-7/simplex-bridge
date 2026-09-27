@@ -34,8 +34,20 @@ echo ""
 
 # 1. Install websockets (universal — needed by any WebSocket client)
 echo "[1/3] Installing websockets..."
-docker exec "$C" pip install -q websockets 2>/dev/null || \
-  docker exec "$C" pip install websockets 2>/dev/null
+# Images that mark Python externally-managed (PEP 668) reject a plain
+# `pip install`; the Hermes image is one of them. Try the normal form
+# first, then --break-system-packages, and fail loudly if both fail
+# rather than dying silently under `set -e`.
+if ! docker exec "$C" pip install -q websockets 2>/dev/null; then
+  if ! docker exec "$C" pip install -q --break-system-packages websockets 2>/dev/null; then
+    # Show the real error now that we've exhausted the fallbacks
+    docker exec "$C" pip install --break-system-packages websockets || {
+      echo "  ✗ Failed to install websockets in container '$C'." >&2
+      echo "    Check the container is running and pip is available: docker exec $C which pip" >&2
+      exit 1
+    }
+  fi
+fi
 
 docker exec "$C" python3 -c \
   "import websockets; print('  → websockets', websockets.__version__)" 2>/dev/null

@@ -11,7 +11,9 @@
 
 Run a SimpleX Chat bot as a Docker container. On first start it creates a bot profile and connection address. Connect your [Hermes Agent](https://github.com/nousresearch/hermes-agent) or custom bot framework via WebSocket.
 
-🧪 **Compatibility note**: The `main` branch (tagged `v0.16.0`) targets **Hermes Agent v0.16.0+ (v2026.6.5+)**. For older Hermes Agent versions (v0.14.x–v0.15.x), use the [`compat-v0.14`](https://github.com/libre-7/simplex-bridge/tree/compat-v0.14) branch.
+📌 **Compatibility note**: The `main` branch (current release **v1.1.0**) targets **Hermes Agent v0.16.0+ (v2026.6.5+)**. For older Hermes Agent versions (v0.14.x–v0.15.x), use the [`compat-v0.14`](https://github.com/libre-7/simplex-bridge/tree/compat-v0.14) branch.
+
+v1.1.0 ships **simplex-chat v7.0.2** and a refreshed `ubuntu:24.04` base image.
 
 | Registry | Pull Command |
 |----------|-------------|
@@ -40,10 +42,12 @@ cat $(docker volume inspect simplex-data --format '{{.Mountpoint}}')/bot_address
 
 ## Images
 
-| Registry | Pull URL | Latest Tag |
-|----------|----------|------------|
-| **GitHub Container Registry** (primary) | `docker pull ghcr.io/libre-7/simplex-bridge` | `latest`, `sha-<commit>`, `v*` |
-| **Docker Hub** | `docker pull libre7/simplex-bridge` | `latest`, `sha-<commit>` |
+| Registry | Pull URL | Tags published |
+|----------|----------|----------------|
+| **GitHub Container Registry** (primary) | `docker pull ghcr.io/libre-7/simplex-bridge` | `latest`, `sha-<commit>`, `vX.Y.Z`, `X.Y`, `X.Y.Z` |
+| **Docker Hub** | `docker pull libre7/simplex-bridge` | `latest`, `sha-<commit>`, `vX.Y.Z`, `X.Y`, `X.Y.Z` |
+
+Both registries receive the full tag set on every push to `main` and on every `v*` tag push.
 
 Tags are automatically built and pushed on every push to `main`:
 - **`latest`** — most recent commit on `main`
@@ -226,12 +230,28 @@ Or read `/mnt/user/appdata/simplex-bridge/bot_address.txt`.
 
 Both containers require host networking — simplex-bridge **and** Hermes Agent must share the loopback interface.
 
+This mirrors the [`docker-compose.yml`](docker-compose.yml) shipped in the repo, pinned to the released v1.1.0 image by digest:
+
 ```yaml
 services:
   simplex-bridge:
-    image: ghcr.io/libre-7/simplex-bridge:latest
+    image: ghcr.io/libre-7/simplex-bridge@sha256:46f2aaf17532b93167cacc8070fe53f8c8161fc82f2688050bcd575085434b87 # v1.1.0
     container_name: simplex-bridge
     network_mode: host
+    # The entrypoint starts as root because it must chown /data and use
+    # gosu to drop privileges — so these three caps are required even
+    # with everything else dropped. Removing them makes the container
+    # abort at startup.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
     volumes:
       - simplex-data:/data
     environment:

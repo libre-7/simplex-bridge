@@ -33,12 +33,105 @@ jobs:
         run: |
           shellcheck entrypoint.sh install-websockets.sh
 
+  smoke:
+    # Builds the image and actually runs it with the same capability set
+    # docker-compose.yml uses. Without this, a broken cap_drop/no-new-privileges
+    # combination ships green: the entrypoint needs CHOWN+SETUID+SETGID and dies
+    # on startup, which lint and build steps cannot detect.
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Build image (load into local docker)
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: simplex-bridge:smoke
+          cache-from: type=gha
+
+      - name: Validate compose file
+        run: docker compose config --quiet
+
+      - name: Run container with compose security options
+        run: |
+          docker volume create simplex-smoke-data
+          # Mirror docker-compose.yml exactly: cap_drop ALL + the three caps the
+          # entrypoint legitimately needs + no-new-privileges. Bridge networking
+          # keeps the daemon's 127.0.0.1:5225 bind inside the container's own netns
+          # (the in-container healthcheck still probes it via loopback) and avoids
+          # binding a port on the shared runner host.
+          docker run -d --name simplex-smoke \
+            --network bridge \
+            -v simplex-smoke-data:/data \
+            --cap-drop ALL \
+            --cap-add CHOWN --cap-add SETUID --cap-add SETGID \
+            --security-opt no-new-privileges:true \
+            simplex-bridge:smoke
+
+      - name: Wait for healthy status
+        run: |
+          for i in $(seq 1 40); do
+            STATE=$(docker inspect --format '{{.State.Health.Status}}' simplex-smoke 2>/dev/null || echo none)
+            RUNNING=$(docker inspect --format '{{.State.Running}}' simplex-smoke 2>/dev/null || echo false)
+            echo "attempt $i: running=$RUNNING health=$STATE"
+            if [ "$STATE" = "healthy" ]; then
+              echo "container became healthy"
+              docker logs simplex-smoke 2>&1 | tail -20
+              exit 0
+            fi
+            if [ "$RUNNING" != "true" ]; then
+              echo "::error::container exited during startup"
+              docker logs simplex-smoke 2>&1 | tail -40
+              exit 1
+            fi
+            sleep 3
+          done
+          echo "::error::container never became healthy"
+          docker logs simplex-smoke 2>&1 | tail -40
+          exit 1
+
+      - name: Bot address was created
+        # Non-fatal by design: the bot address is produced by the first-run
+        # setup, which contacts the SimpleX SMP servers. Outbound filtering or
+        # a slow/unavailable server in the runner makes this fail even when the
+        # image is perfectly healthy — and the entrypoint already treats setup
+        # failure as retryable on next start. Healthy status is the real gate.
+        continue-on-error: true
+        run: |
+          ADDR=$(docker exec simplex-smoke cat /data/bot_address.txt 2>/dev/null || echo "")
+          if [ -z "$ADDR" ]; then
+            echo "::warning::no bot address yet (first-run setup needs outbound access to SimpleX servers)"
+            exit 0
+          fi
+          echo "bot address: ${ADDR:0:60}..."
+          case "$ADDR" in
+            simplex:/*) echo "bot address looks valid" ;;
+            *) echo "::warning::unexpected bot address format: $ADDR" ;;
+          esac
+
+      - name: Container logs
+        if: always()
+        run: docker logs simplex-smoke 2>&1 | tail -40
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f simplex-smoke 2>/dev/null || true
+          docker volume rm simplex-smoke-data 2>/dev/null || true
+
   build:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-    needs: lint
+    needs: smoke
 
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0

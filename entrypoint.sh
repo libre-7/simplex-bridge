@@ -33,7 +33,7 @@ fi
 
 # ── Graceful shutdown handler ──────────────────────────────────────
 shutdown() {
-    signal=$1
+    local signal=$1
     echo "[entrypoint] Received $signal — forwarding to simplex-chat..."
     kill "-$signal" "$DAEMON_PID" 2>/dev/null || true
     for i in $(seq 1 10); do
@@ -45,6 +45,9 @@ shutdown() {
     done
     if [ -n "${SOCAT_PID:-}" ]; then
         kill "$SOCAT_PID" 2>/dev/null || true
+    fi
+    if [ -n "${LOG_ROTATOR_PID:-}" ]; then
+        kill "$LOG_ROTATOR_PID" 2>/dev/null || true
     fi
     echo "[entrypoint] Goodbye"
     exit 0
@@ -59,8 +62,16 @@ if [ -n "$TZ" ] && [ -f "/usr/share/zoneinfo/$TZ" ]; then
     echo "$TZ" > /etc/timezone
 fi
 
-# Fix data dir ownership so the runtime user can write to it
-chown -R "$PUID:$PGID" "$DATA_DIR"
+# Fix data dir ownership so the runtime user can write to it.
+# chown -R is a full recursive walk — on a large /data (chat DB plus
+# attachments) that costs seconds on every start. Skip it when the top
+# of the tree already has the requested owner; the daemon user is the only
+# writer, so a correct root means the subtree is correct too.
+if [ "$(stat -c '%u:%g' "$DATA_DIR" 2>/dev/null)" != "$PUID:$PGID" ]; then
+    chown -R "$PUID:$PGID" "$DATA_DIR"
+else
+    echo "[entrypoint] $DATA_DIR already owned by $PUID:$PGID — skipping chown"
+fi
 
 # ── Build extra flags (array — no shell re-parsing of env values) ──
 FLAGS=(-d "$DATA_DIR/simplex" -p 5225)
@@ -90,7 +101,21 @@ fi
 echo "[entrypoint] Starting simplex-chat daemon as UID $PUID..."
 echo "[entrypoint]   simplex-chat ${FLAGS[*]}"
 
-gosu "$PUID:$PGID" simplex-chat "${FLAGS[@]}" > "$DATA_DIR/daemon.log" 2>&1 &
+# Bound the daemon log so a long-running bot can't fill the appdata share.
+# Unraid's LogMaxSize/LogMaxFile only govern the Docker log driver, not this
+# file. Truncate in place at start, and cap the size each boot.
+DAEMON_LOG="$DATA_DIR/daemon.log"
+MAX_LOG_BYTES=$(( 10 * 1024 * 1024 ))
+if [ -f "$DAEMON_LOG" ]; then
+    LOG_SIZE=$(stat -c '%s' "$DAEMON_LOG" 2>/dev/null || echo 0)
+    if [ "${LOG_SIZE:-0}" -gt "$MAX_LOG_BYTES" ]; then
+        echo "[entrypoint] daemon.log is ${LOG_SIZE} bytes — truncating to last 1MB"
+        tail -c 1048576 "$DAEMON_LOG" > "$DAEMON_LOG.tmp" 2>/dev/null || : > "$DAEMON_LOG"
+        mv -f "$DAEMON_LOG.tmp" "$DAEMON_LOG" 2>/dev/null || :
+    fi
+fi
+
+gosu "$PUID:$PGID" simplex-chat "${FLAGS[@]}" > "$DAEMON_LOG" 2>&1 &
 DAEMON_PID=$!
 echo "[entrypoint]   PID: $DAEMON_PID"
 
@@ -182,13 +207,63 @@ if [ -n "$SIMPLEX_SOCAT_PORT" ]; then
         echo "[entrypoint] ERROR: SIMPLEX_SOCAT_PORT must be between 1 and 65535 (got: $SIMPLEX_SOCAT_PORT)"
         exit 1
     fi
+    # 5225 is already bound by the daemon on 127.0.0.1. socat listens on
+    # 0.0.0.0, so binding the same port fails with EADDRINUSE — and because
+    # the healthcheck probes 127.0.0.1:5225 (the daemon, not socat), the
+    # container still reports healthy while the bridge is dead. Fail loudly
+    # here instead of shipping a silently broken proxy.
+    if [ "$SIMPLEX_SOCAT_PORT" -eq 5225 ]; then
+        echo "[entrypoint] ERROR: SIMPLEX_SOCAT_PORT must NOT be 5225 — the daemon already binds 127.0.0.1:5225."
+        echo "[entrypoint]        Pick another port (e.g. 5226) and publish that one."
+        exit 1
+    fi
     echo "[entrypoint] *** WARNING: Exposing WebSocket API on 0.0.0.0:$SIMPLEX_SOCAT_PORT ***"
     echo "[entrypoint] *** No authentication — only use on trusted networks    ***"
     echo "[entrypoint] Starting socat bridge on 0.0.0.0:$SIMPLEX_SOCAT_PORT → 127.0.0.1:5225"
     socat "TCP-LISTEN:$SIMPLEX_SOCAT_PORT,reuseaddr,fork" TCP:127.0.0.1:5225 &
     SOCAT_PID=$!
     echo "[entrypoint]   socat PID: $SOCAT_PID"
+
+    # Confirm the listener actually came up; otherwise the bridge is dead
+    # and only a manual `ss -tln | grep $SIMPLEX_SOCAT_PORT` would reveal it.
+    for i in $(seq 1 10); do
+        if ss -tln 2>/dev/null | grep -q ":$SIMPLEX_SOCAT_PORT"; then
+            echo "[entrypoint] socat bridge listening on 0.0.0.0:$SIMPLEX_SOCAT_PORT"
+            break
+        fi
+        if ! kill -0 "$SOCAT_PID" 2>/dev/null; then
+            echo "[entrypoint] ERROR: socat exited immediately — bridge NOT running on port $SIMPLEX_SOCAT_PORT"
+            exit 1
+        fi
+        if [ "$i" -eq 10 ]; then
+            echo "[entrypoint] ERROR: socat did not start listening on port $SIMPLEX_SOCAT_PORT within 10s"
+            exit 1
+        fi
+        sleep 1
+    done
 fi
+
+# ── Periodic daemon.log trim ───────────────────────────────────────
+# The boot-time trim only helps on restart. A container left up for months
+# would still grow without bound, so trim hourly in the background.
+#
+# Truncate in place — never mv. The running daemon holds daemon.log open by
+# inode, so replacing the file would send all further output to an unlinked
+# inode where it is silently lost. Truncating keeps the same inode open and
+# the daemon simply keeps writing into it.
+(
+    while true; do
+        sleep 3600
+        if [ -f "$DAEMON_LOG" ]; then
+            SIZE=$(stat -c '%s' "$DAEMON_LOG" 2>/dev/null || echo 0)
+            if [ "${SIZE:-0}" -gt "$MAX_LOG_BYTES" ]; then
+                truncate -s 0 "$DAEMON_LOG" 2>/dev/null || : > "$DAEMON_LOG"
+                echo "[entrypoint] daemon.log exceeded ${MAX_LOG_BYTES} bytes — truncated"
+            fi
+        fi
+    done
+) &
+LOG_ROTATOR_PID=$!
 
 # ── Ready ──────────────────────────────────────────────────────────
 echo ""
