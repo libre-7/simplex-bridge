@@ -103,19 +103,28 @@ echo "[entrypoint]   simplex-chat ${FLAGS[*]}"
 
 # Bound the daemon log so a long-running bot can't fill the appdata share.
 # Unraid's LogMaxSize/LogMaxFile only govern the Docker log driver, not this
-# file. Truncate in place at start, and cap the size each boot.
-DAEMON_LOG="$DATA_DIR/daemon.log"
+# file. Truncate at start, and cap the size on every boot.
+DAEMON_LOG="/data/daemon.log"
 MAX_LOG_BYTES=$(( 10 * 1024 * 1024 ))
 if [ -f "$DAEMON_LOG" ]; then
     LOG_SIZE=$(stat -c '%s' "$DAEMON_LOG" 2>/dev/null || echo 0)
     if [ "${LOG_SIZE:-0}" -gt "$MAX_LOG_BYTES" ]; then
-        echo "[entrypoint] daemon.log is ${LOG_SIZE} bytes — truncating to last 1MB"
-        tail -c 1048576 "$DAEMON_LOG" > "$DAEMON_LOG.tmp" 2>/dev/null || : > "$DAEMON_LOG"
-        mv -f "$DAEMON_LOG.tmp" "$DAEMON_LOG" 2>/dev/null || :
+        echo "[entrypoint] daemon.log is ${LOG_SIZE} bytes — trimming to last 1MB"
+        # mv is safe here: the daemon has not been started yet, so nothing
+        # holds the old inode open.
+        gosu "$PUID:$PGID" sh -c \
+          'tail -c 1048576 /data/daemon.log > /data/daemon.log.tmp 2>/dev/null && mv -f /data/daemon.log.tmp /data/daemon.log' || :
     fi
 fi
 
-gosu "$PUID:$PGID" simplex-chat "${FLAGS[@]}" > "$DAEMON_LOG" 2>&1 &
+# The daemon's stdout is redirected inside the inner shell, i.e. as the
+# daemon user, NOT by this root shell. After the chown above, root owns
+# nothing under /data and — with caps limited to CHOWN/SETUID/SETGID — has
+# no DAC_OVERRIDE to bypass that, so a root-side redirect fails EACCES.
+# Passing the flags positionally through "$@" keeps the display name a single
+# argv element (no shell re-parsing of its spaces), and `exec` makes $! the
+# simplex-chat process itself so signals reach the daemon directly.
+gosu "$PUID:$PGID" sh -c 'exec simplex-chat "$@" > /data/daemon.log 2>&1' sh "${FLAGS[@]}" &
 DAEMON_PID=$!
 echo "[entrypoint]   PID: $DAEMON_PID"
 
@@ -137,7 +146,10 @@ SETUP_MARKER="$DATA_DIR/.setup-complete"
 if [ ! -f "$SETUP_MARKER" ]; then
     sleep 2
     echo "[entrypoint] Setting up bot address..."
-    SETUP_LOG="$DATA_DIR/setup.log"
+    # /tmp, not /data: this redirect is performed by the root shell, which
+    # has no write access to /data after the chown (see the daemon launch
+    # above). The setup log is diagnostic output, not persistent state.
+    SETUP_LOG="/tmp/setup.log"
     # Run as the daemon user; capture exit status explicitly — the sed pipe
     # would otherwise mask python's exit code (sed always exits 0).
     if gosu "$PUID:$PGID" python3 - <<'PYEOF' > "$SETUP_LOG" 2>&1
@@ -183,7 +195,8 @@ asyncio.run(setup())
 PYEOF
     then
         sed 's/^/[setup] /' "$SETUP_LOG"
-        touch "$SETUP_MARKER"
+        # Create the marker as the daemon user — root cannot write to /data.
+        gosu "$PUID:$PGID" touch "$SETUP_MARKER"
     else
         echo "[entrypoint] WARNING: first-run setup did not complete — will retry on next restart"
         tail -5 "$SETUP_LOG" | sed 's/^/[setup] /'
@@ -251,18 +264,24 @@ fi
 # inode, so replacing the file would send all further output to an unlinked
 # inode where it is silently lost. Truncating keeps the same inode open and
 # the daemon simply keeps writing into it.
-(
+#
+# Runs as the daemon user: after the entrypoint's chown, root has no write
+# access to /data without CAP_DAC_OVERRIDE, which this image deliberately
+# does not request. Single quotes are intentional: the inner shell expands
+# "$@" and the size at runtime, and the one exception is spliced in above.
+# shellcheck disable=SC2016
+gosu "$PUID:$PGID" sh -c '
     while true; do
         sleep 3600
-        if [ -f "$DAEMON_LOG" ]; then
-            SIZE=$(stat -c '%s' "$DAEMON_LOG" 2>/dev/null || echo 0)
-            if [ "${SIZE:-0}" -gt "$MAX_LOG_BYTES" ]; then
-                truncate -s 0 "$DAEMON_LOG" 2>/dev/null || : > "$DAEMON_LOG"
-                echo "[entrypoint] daemon.log exceeded ${MAX_LOG_BYTES} bytes — truncated"
+        if [ -f /data/daemon.log ]; then
+            SIZE=$(stat -c "%s" /data/daemon.log 2>/dev/null || echo 0)
+            if [ "${SIZE:-0}" -gt '"$MAX_LOG_BYTES"' ]; then
+                truncate -s 0 /data/daemon.log 2>/dev/null || : > /data/daemon.log
+                echo "[entrypoint] daemon.log exceeded max size — truncated"
             fi
         fi
     done
-) &
+' &
 LOG_ROTATOR_PID=$!
 
 # ── Ready ──────────────────────────────────────────────────────────
