@@ -13,7 +13,7 @@ Run a SimpleX Chat bot as a Docker container. On first start it creates a bot pr
 
 📌 **Compatibility note**: `main` targets **Hermes Agent v0.16.0+ (v2026.6.5+)**. For older Hermes Agent versions (v0.14.x–v0.15.x), use the [`compat-v0.14`](https://github.com/libre-7/simplex-bridge/tree/compat-v0.14) branch.
 
-The latest tagged release is **v1.1.0**. `main` is ahead of it with post-release fixes — **simplex-chat v7.0.2**, a refreshed `ubuntu:24.04` base image, gosu 1.19, and container startup fixes. To consume those fixes now, pin the `sha-` tag for commit `13f1bb7` (see [Tagging & Pinning](#tagging--pinning)); the next version tag will carry them.
+The latest tagged release is **v1.1.0**. `main` is ahead of it with post-release fixes — **simplex-chat v7.0.2**, a refreshed `ubuntu:24.04` base image, gosu 1.19, and container startup fixes. To consume those fixes now, pin the `sha-` tag for commit `226d05d0` (see [Tagging & Pinning](#tagging--pinning)); the next version tag will carry them.
 
 | Registry | Pull Command |
 |----------|-------------|
@@ -235,7 +235,7 @@ This mirrors the [`docker-compose.yml`](docker-compose.yml) shipped in the repo,
 ```yaml
 services:
   simplex-bridge:
-    image: ghcr.io/libre-7/simplex-bridge@sha256:1cdd49247fd6ec5f092f935da9638e206504339486b4251516d63c5d506e622a # sha-13f1bb7
+    image: ghcr.io/libre-7/simplex-bridge@sha256:41082e16f86f0a7ff02d942b919fac494898e7ef130eb507a052d989d342d0d9 # sha-226d05d0
     container_name: simplex-bridge
     network_mode: host
     # The entrypoint starts as root because it must chown /data and use

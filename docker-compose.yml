@@ -1,10 +1,10 @@
 services:
   simplex-bridge:
-    # Pinned to the post-audit build (commit 13f1bb7). The older v1.1.0 tag
+    # Pinned to the post-audit build (commit 226d05d0). The older v1.1.0 tag
     # predates the audit fixes — notably it ships the `cap_drop: ALL`
     # combination that aborts at startup. Update this digest when cutting
     # the next version tag.
-    image: ghcr.io/libre-7/simplex-bridge@sha256:1cdd49247fd6ec5f092f935da9638e206504339486b4251516d63c5d506e622a # sha-13f1bb7
+    image: ghcr.io/libre-7/simplex-bridge@sha256:41082e16f86f0a7ff02d942b919fac494898e7ef130eb507a052d989d342d0d9 # sha-226d05d0
     container_name: simplex-bridge
     network_mode: host
     # The entrypoint starts as root because it must (a) chown /data to
