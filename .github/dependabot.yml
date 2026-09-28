@@ -7,13 +7,11 @@ updates:
     labels:
       - "dependencies"
 
-  # Keeps the pinned `websockets==X.Y.Z` in the Dockerfile current and
-  # security-patched. Docker image updates are handled by the manual
-  # simplex-chat version bump in Dockerfile (the upstream release publishes
-  # a SHA256 per binary that must be updated in step with the version).
-  - package-ecosystem: "pip"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    labels:
-      - "dependencies"
+  # NOTE: the `websockets==X.Y.Z` pin in the Dockerfile is deliberately NOT
+  # covered by Dependabot. Its pip ecosystem requires a manifest
+  # (requirements.txt / pyproject.toml) and this repo has none — the only
+  # Python dependency is a `pip3 install` line inside the Dockerfile, which
+  # Dependabot cannot parse. Adding a "pip" entry here fails every run with
+  # `dependency_file_not_found`. Bump that pin by hand in the Dockerfile; the
+  # same applies to the simplex-chat binary, whose upstream release publishes a
+  # SHA256 that must be updated in step with the version.
