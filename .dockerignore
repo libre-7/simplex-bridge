@@ -4,9 +4,6 @@
 .gitattributes
 .github/
 
-# CI/workflows kept for build context but .git excluded
-**/.git/
-
 # Python
 __pycache__/
 *.pyc
@@ -27,8 +24,12 @@ Thumbs.db
 # Local test data
 data/
 
-# Docs and assets (not needed at build time)
+# Docs, CI config, and assets — not needed to build the image
 README.md
+LICENSE
 icons/
 templates/
 ca_profile.xml
+docker-compose.yml
+.hadolint.yaml
+install-websockets.sh

@@ -1,10 +1,19 @@
 services:
   simplex-bridge:
-    image: ghcr.io/libre-7/simplex-bridge@sha256:04cdd16a4315df11fd1c44d3ea26ffc17cc75b8d33249ba2d5987a7900911153 # v0.16.0
+    image: ghcr.io/libre-7/simplex-bridge@sha256:46f2aaf17532b93167cacc8070fe53f8c8161fc82f2688050bcd575085434b87 # v1.1.0
     container_name: simplex-bridge
     network_mode: host
+    # The entrypoint starts as root because it must (a) chown /data to
+    # PUID:PGID and (b) use gosu to drop to the unprivileged simplex user.
+    # Both require capabilities, so dropping ALL without restoring these
+    # three makes the container abort at startup. No NET_BIND_SERVICE is
+    # needed — 5225 is unprivileged, so it binds without extra caps.
     cap_drop:
       - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
     security_opt:
       - no-new-privileges:true
     tmpfs:

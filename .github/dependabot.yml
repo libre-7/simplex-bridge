@@ -6,3 +6,14 @@ updates:
       interval: "weekly"
     labels:
       - "dependencies"
+
+  # Keeps the pinned `websockets==X.Y.Z` in the Dockerfile current and
+  # security-patched. Docker image updates are handled by the manual
+  # simplex-chat version bump in Dockerfile (the upstream release publishes
+  # a SHA256 per binary that must be updated in step with the version).
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"

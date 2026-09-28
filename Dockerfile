@@ -1,4 +1,4 @@
-FROM ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517
+FROM ubuntu:24.04@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3
 
 # OCI labels — also set at build time via docker/metadata-action for versioned tags
 LABEL org.opencontainers.image.title="simplex-bridge"
@@ -17,13 +17,14 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Install gosu — Ubuntu equivalent of Alpine's su-exec (static Go binary)
+# 1.19 updates for Go vuln GO-2025-3956 (github.com/moby/sys/user).
 # SHA256 verification: download checksum file, filter for gosu-amd64,
 # rewrite the path to match the actual binary location, then verify.
 RUN set -eux; \
     curl -fsSLo /usr/local/bin/gosu \
-      "https://github.com/tianon/gosu/releases/download/1.17/gosu-amd64"; \
+      "https://github.com/tianon/gosu/releases/download/1.19/gosu-amd64"; \
     curl -fsSLo /tmp/gosu.SHA256SUMS \
-      "https://github.com/tianon/gosu/releases/download/1.17/SHA256SUMS"; \
+      "https://github.com/tianon/gosu/releases/download/1.19/SHA256SUMS"; \
     grep 'gosu-amd64$' /tmp/gosu.SHA256SUMS | sed 's|  gosu-amd64$|  /usr/local/bin/gosu|' > /tmp/gosu-checksum.txt; \
     sha256sum -c /tmp/gosu-checksum.txt; \
     rm -f /tmp/gosu.SHA256SUMS /tmp/gosu-checksum.txt; \
@@ -38,11 +39,11 @@ VOLUME ["/data"]
 
 # Install simplex-chat CLI binary (static Haskell binary, ~72MB, x86_64 only)
 # NOTE: Only linux/amd64 is supported — no ARM binary is published upstream.
-# SHA256 from: https://github.com/simplex-chat/simplex-chat/releases/tag/v7.0.1
+# SHA256 from: https://github.com/simplex-chat/simplex-chat/releases/tag/v7.0.2
 RUN set -eux; \
     curl -fsSL -o /usr/local/bin/simplex-chat \
-        "https://github.com/simplex-chat/simplex-chat/releases/download/v7.0.1/simplex-chat-ubuntu-24_04-x86_64"; \
-    echo "85272a558cd69059f0dfa99634b2c5cedb17f374460c9cec44d9777af10050c1  /usr/local/bin/simplex-chat" | sha256sum -c -; \
+        "https://github.com/simplex-chat/simplex-chat/releases/download/v7.0.2/simplex-chat-ubuntu-24_04-x86_64"; \
+    echo "895fb14cfaa662d1c0947f2f871141fc89680fe3e70bff64c366cbe9e59aa4f0  /usr/local/bin/simplex-chat" | sha256sum -c -; \
     chmod +x /usr/local/bin/simplex-chat && \
     simplex-chat --version
 

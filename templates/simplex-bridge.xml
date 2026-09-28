@@ -75,6 +75,11 @@
   <LogMaxFile>3</LogMaxFile>
 
   <Changes>
+### 2026.09.27
+- Updated for simplex-chat v7.0.2 / image v1.1.0.
+- Container now refuses SIMPLEX_SOCAT_PORT=5225 at startup instead of starting with a dead bridge.
+- daemon.log is trimmed at boot and hourly so it cannot grow unbounded.
+
 ### 2026.08.24
 - Corrected socat bridge docs: verified working, but SIMPLEX_SOCAT_PORT must differ from 5225 (daemon already binds 127.0.0.1:5225). Added unauthenticated-API warning.
 - Annotated Port 5225 field as informational-only under default host networking.
