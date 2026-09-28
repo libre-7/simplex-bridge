@@ -17,13 +17,14 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Install gosu — Ubuntu equivalent of Alpine's su-exec (static Go binary)
+# 1.19 updates for Go vuln GO-2025-3956 (github.com/moby/sys/user).
 # SHA256 verification: download checksum file, filter for gosu-amd64,
 # rewrite the path to match the actual binary location, then verify.
 RUN set -eux; \
     curl -fsSLo /usr/local/bin/gosu \
-      "https://github.com/tianon/gosu/releases/download/1.17/gosu-amd64"; \
+      "https://github.com/tianon/gosu/releases/download/1.19/gosu-amd64"; \
     curl -fsSLo /tmp/gosu.SHA256SUMS \
-      "https://github.com/tianon/gosu/releases/download/1.17/SHA256SUMS"; \
+      "https://github.com/tianon/gosu/releases/download/1.19/SHA256SUMS"; \
     grep 'gosu-amd64$' /tmp/gosu.SHA256SUMS | sed 's|  gosu-amd64$|  /usr/local/bin/gosu|' > /tmp/gosu-checksum.txt; \
     sha256sum -c /tmp/gosu-checksum.txt; \
     rm -f /tmp/gosu.SHA256SUMS /tmp/gosu-checksum.txt; \
