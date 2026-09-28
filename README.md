@@ -11,9 +11,9 @@
 
 Run a SimpleX Chat bot as a Docker container. On first start it creates a bot profile and connection address. Connect your [Hermes Agent](https://github.com/nousresearch/hermes-agent) or custom bot framework via WebSocket.
 
-📌 **Compatibility note**: The `main` branch (current release **v1.1.0**) targets **Hermes Agent v0.16.0+ (v2026.6.5+)**. For older Hermes Agent versions (v0.14.x–v0.15.x), use the [`compat-v0.14`](https://github.com/libre-7/simplex-bridge/tree/compat-v0.14) branch.
+📌 **Compatibility note**: `main` targets **Hermes Agent v0.16.0+ (v2026.6.5+)**. For older Hermes Agent versions (v0.14.x–v0.15.x), use the [`compat-v0.14`](https://github.com/libre-7/simplex-bridge/tree/compat-v0.14) branch.
 
-v1.1.0 ships **simplex-chat v7.0.2** and a refreshed `ubuntu:24.04` base image.
+The latest tagged release is **v1.1.0**. `main` is ahead of it with post-release fixes — **simplex-chat v7.0.2**, a refreshed `ubuntu:24.04` base image, gosu 1.19, and container startup fixes. To consume those fixes now, pin the `sha-` tag for commit `13f1bb7` (see [Tagging & Pinning](#tagging--pinning)); the next version tag will carry them.
 
 | Registry | Pull Command |
 |----------|-------------|
@@ -230,12 +230,12 @@ Or read `/mnt/user/appdata/simplex-bridge/bot_address.txt`.
 
 Both containers require host networking — simplex-bridge **and** Hermes Agent must share the loopback interface.
 
-This mirrors the [`docker-compose.yml`](docker-compose.yml) shipped in the repo, pinned to the released v1.1.0 image by digest:
+This mirrors the [`docker-compose.yml`](docker-compose.yml) shipped in the repo, pinned to the post-audit build by digest:
 
 ```yaml
 services:
   simplex-bridge:
-    image: ghcr.io/libre-7/simplex-bridge@sha256:46f2aaf17532b93167cacc8070fe53f8c8161fc82f2688050bcd575085434b87 # v1.1.0
+    image: ghcr.io/libre-7/simplex-bridge@sha256:1cdd49247fd6ec5f092f935da9638e206504339486b4251516d63c5d506e622a # sha-13f1bb7
     container_name: simplex-bridge
     network_mode: host
     # The entrypoint starts as root because it must chown /data and use
