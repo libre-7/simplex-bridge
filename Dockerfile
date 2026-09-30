@@ -30,7 +30,7 @@ RUN apt-get update && \
 # The `test -s` guard is load-bearing — an empty grep result would make
 # `sha256sum -c` succeed on zero entries, i.e. verify nothing.
 ARG TARGETARCH
-RUN set -eux -o pipefail; \
+RUN set -eux; \
     arch="${TARGETARCH:-}"; \
     if [ -z "$arch" ]; then \
       case "$(uname -m)" in \
@@ -44,11 +44,16 @@ RUN set -eux -o pipefail; \
       "https://github.com/tianon/gosu/releases/download/1.19/${gosu_bin}"; \
     curl -fsSLo /tmp/gosu.SHA256SUMS \
       "https://github.com/tianon/gosu/releases/download/1.19/SHA256SUMS"; \
-    grep "  ${gosu_bin}\$" /tmp/gosu.SHA256SUMS \
-      | sed "s|  ${gosu_bin}\$|  /usr/local/bin/gosu|" > /tmp/gosu-checksum.txt; \
-    test -s /tmp/gosu-checksum.txt; \
+    # `grep ... | sed ... > file` would exit 0 on an empty grep result under
+    # dash, which has no `set -o pipefail` (Ubuntu's /bin/sh). Split it: grep
+    # first so its failure is visible, and require a non-empty match before
+    # rewriting. An empty checksum file would make `sha256sum -c` succeed on
+    # zero entries — i.e. verify nothing.
+    grep "  ${gosu_bin}\$" /tmp/gosu.SHA256SUMS > /tmp/gosu.line; \
+    test -s /tmp/gosu.line; \
+    sed "s|  ${gosu_bin}\$|  /usr/local/bin/gosu|" /tmp/gosu.line > /tmp/gosu-checksum.txt; \
     sha256sum -c /tmp/gosu-checksum.txt; \
-    rm -f /tmp/gosu.SHA256SUMS /tmp/gosu-checksum.txt; \
+    rm -f /tmp/gosu.SHA256SUMS /tmp/gosu-checksum.txt /tmp/gosu.line; \
     chmod +x /usr/local/bin/gosu
 
 # Create generic user — UID/GID are overridden at runtime via PUID/PGID
@@ -66,7 +71,7 @@ VOLUME ["/data"]
 # the ubuntu digest, so this pin is maintained by hand.
 ARG SIMPLEX_VERSION=v7.0.2
 ARG TARGETARCH
-RUN set -eux -o pipefail; \
+RUN set -eux; \
     arch="${TARGETARCH:-}"; \
     if [ -z "$arch" ]; then \
       case "$(uname -m)" in \

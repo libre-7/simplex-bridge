@@ -1,3 +1,9 @@
 ignored:
   - DL3008   # Pin versions in apt-get install (pinned via base image SHA)
   - DL3059   # Multiple consecutive RUN instructions (keeps layers cacheable)
+  # DL4006   # "set -o pipefail before RUN with a pipe". Ubuntu's /bin/sh is
+            # dash, which has no pipefail — `set -eux -o pipefail` aborts the
+            # build with "Illegal option -o pipefail" (CI proved this). The
+            # multi-arch checksum steps avoid pipes entirely instead: grep
+            # writes to a file, then `test -s` fails the build on no match,
+            # which is strictly stronger than pipefail.
