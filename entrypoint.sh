@@ -152,12 +152,11 @@ for i in $(seq 1 "$STARTUP_TIMEOUT"); do
         echo "[entrypoint] WebSocket API ready on port 5225"
         break
     fi
-    # Stop early if the daemon died instead of burning the whole window.
-    if ! kill -0 "$DAEMON_PID" 2>/dev/null; then
-        echo "[entrypoint] ERROR: simplex-chat exited before opening port 5225"
-        tail -20 "$DATA_DIR/daemon.log" 2>/dev/null || true
-        exit 1
-    fi
+    # Gate on the port only. Do NOT test `kill -0 $DAEMON_PID` here: $! is the
+    # PID of the `gosu` wrapper, and it is not a reliable proxy for the
+    # daemon's liveness across the gosu -> sh -> simplex-chat exec chain. An
+    # early-exit check on it fires within milliseconds of launch and kills
+    # healthy startup — which is exactly what CI caught when this was added.
     if [ "$i" -eq "$STARTUP_TIMEOUT" ]; then
         echo "[entrypoint] ERROR: simplex-chat failed to start within ${STARTUP_TIMEOUT}s"
         tail -20 "$DATA_DIR/daemon.log" 2>/dev/null || true

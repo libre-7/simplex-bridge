@@ -30,7 +30,7 @@ RUN apt-get update && \
 # The `test -s` guard is load-bearing — an empty grep result would make
 # `sha256sum -c` succeed on zero entries, i.e. verify nothing.
 ARG TARGETARCH
-RUN set -eux; \
+RUN set -eux -o pipefail; \
     arch="${TARGETARCH:-}"; \
     if [ -z "$arch" ]; then \
       case "$(uname -m)" in \
@@ -66,7 +66,7 @@ VOLUME ["/data"]
 # the ubuntu digest, so this pin is maintained by hand.
 ARG SIMPLEX_VERSION=v7.0.2
 ARG TARGETARCH
-RUN set -eux; \
+RUN set -eux -o pipefail; \
     arch="${TARGETARCH:-}"; \
     if [ -z "$arch" ]; then \
       case "$(uname -m)" in \
