@@ -11,7 +11,7 @@
 
 Run a SimpleX Chat bot as a Docker container. On first start it creates a bot profile and connection address. Connect your [Hermes Agent](https://github.com/nousresearch/hermes-agent) or custom bot framework via WebSocket.
 
-📌 **Compatibility note**: `main` targets **Hermes Agent v0.16.0+ (v2026.6.5+)**. For older Hermes Agent versions (v0.14.x–v0.15.x), use the [`compat-v0.14`](https://github.com/libre-7/simplex-bridge/tree/compat-v0.14) branch.
+📌 **Compatibility note**: `main` targets **Hermes Agent v0.20.0+ (v2026.8.3+)**. That version ships the SimpleX DM send fix natively (`/_send <target> json …`), which this image requires — `install-websockets.sh` verifies it and will exit non-zero on an older adapter rather than patching it. For older Hermes Agent versions (v0.14.x–v0.19.x), use the [`compat-v0.14`](https://github.com/libre-7/simplex-bridge/tree/compat-v0.14) branch.
 
 The latest release is **v1.2.0** — the post-audit release with container startup fixes, a refreshed `ubuntu:24.04` base image, gosu 1.19, and CI that refuses to publish a container that never reaches healthy. v1.1.0 and earlier shipped a `cap_drop: ALL` / no-`cap_add` combination that aborted the container at startup; upgrade to v1.2.0 or later.
 
@@ -47,7 +47,7 @@ cat $(docker volume inspect simplex-data --format '{{.Mountpoint}}')/bot_address
 | **GitHub Container Registry** (primary) | `docker pull ghcr.io/libre-7/simplex-bridge` | `latest`, `sha-<commit>`, `vX.Y.Z`, `X.Y`, `X.Y.Z` |
 | **Docker Hub** | `docker pull libre7/simplex-bridge` | `latest`, `sha-<commit>`, `vX.Y.Z`, `X.Y`, `X.Y.Z` |
 
-Both registries receive the full tag set on every push to `main` and on every `v*` tag push.
+Both registries receive the full tag set on every push to `main` and on every `v*` tag push, and both carry the same **multi-arch** platform set (`linux/amd64`, `linux/arm64`). Docker Hub is mirrored with `buildx imagetools create` so the manifest list — not just the runner's own architecture — is copied; CI asserts both platforms are present on both registries.
 
 Tags are automatically built and pushed on every push to `main`:
 - **`latest`** — most recent commit on `main`
@@ -62,11 +62,14 @@ Tags are automatically built and pushed on every push to `main`:
 | `SIMPLEX_AUTO_ACCEPT` | `true` | Auto-accept incoming contact requests |
 | `SIMPLEX_FILES_ENABLED` | `true` | Allow file transfers from contacts |
 | `SIMPLEX_MARK_READ` | `true` | Auto-mark received messages as read |
-| `SIMPLEX_TOR` | `false` | Route through Tor SOCKS5 proxy (requires Tor on port 9050) |
-| `SIMPLEX_SOCAT_PORT` | (empty) | Set to e.g. `5226` to expose WebSocket on all interfaces via socat bridge (must differ from 5225) |
+| `SIMPLEX_TOR` | `false` | Route through a local SOCKS5 proxy at `:9050` (e.g. Tor). See caveat below |
+| `SIMPLEX_SOCAT_PORT` | (empty) | Set to e.g. `5226` to expose WebSocket on all interfaces via socat bridge (must differ from 5225). ⚠️ **Unauthenticated** — trusted networks only |
+| `SIMPLEX_STARTUP_TIMEOUT` | `15` | Seconds to wait for the daemon to bind port 5225 before failing. Raise on slow/emulated ARM |
 | `PUID` | `99` | User ID for file permissions (Unraid: 99) |
 | `PGID` | `100` | Group ID for file permissions (Unraid: 100) |
 | `TZ` | `UTC` | Container timezone |
+
+> ⚠️ **`SIMPLEX_TOR` caveat:** it passes simplex-chat's `-x`, which selects a **local SOCKS5 proxy at `:9050`** — it does not itself start or configure Tor. It only routes over Tor if that SOCKS5 proxy is a Tor instance. Onion-only server routing additionally requires simplex-chat's `--socks-mode`/`--host-mode` options, which this image does not set. Verify your traffic is actually onion-routed before relying on it.
 
 ### Network Configuration
 
@@ -74,13 +77,13 @@ The daemon binds to `127.0.0.1:5225` only (security by design). **Both container
 
 The Unraid template defaults to host networking for simplex-bridge.
 
-**Bridge networking via socat** (verified working, v1.0.1 image): Set `SIMPLEX_SOCAT_PORT=<port>` to start a socat proxy that exposes `0.0.0.0:<port>` → `127.0.0.1:5225`. **The port must be anything other than `5225`** — the daemon already binds `127.0.0.1:5225`, so socat's bind of the same port fails with "Address already in use" (use `5226`, for example). Then switch to bridge networking and publish that port: change the network type to `bridge` and map `-p <port>:<port>` (e.g. `-p 5226:5226`).
+**Bridge networking via socat**: Set `SIMPLEX_SOCAT_PORT=<port>` to start a socat proxy that exposes `0.0.0.0:<port>` → `127.0.0.1:5225`. **The port must be anything other than `5225`** — the daemon already binds `127.0.0.1:5225`, so socat's bind of the same port fails with "Address already in use" (use `5226`, for example). Then switch to bridge networking and publish that port: change the network type to `bridge` and map `-p <port>:<port>` (e.g. `-p 5226:5226`).
 
 > ⚠️ The WebSocket API has no authentication. Exposing it on `0.0.0.0` makes it reachable from any IP that can reach the container — only do this on trusted networks or behind a firewall. Prefer host networking when both containers run on the same host.
 
-#### Securing the socat port (verified recipes)
+#### Securing the socat port
 
-Both recipes below were verified live against a v1.0.1 image: a plain WebSocket upgrade request (`HTTP/1.1 101`) succeeds through each mitigation, and unauthorized paths are blocked.
+Both recipes below were verified live against a **v1.0.1** image; the socat bridge and its options are unchanged since, but they have not been re-run against the current multi-arch image. A plain WebSocket upgrade request (`HTTP/1.1 101`) succeeds through each mitigation, and unauthorized paths are blocked. Re-verify with the `curl` commands shown if you depend on them.
 
 **Option A — loopback-only publish + firewall allowlist (recommended, no extra software)**
 
@@ -91,7 +94,7 @@ Publish socat's port bound to loopback only, then open it selectively with a fir
 docker run -d --name simplex-bridge \
   -p 127.0.0.1:5226:5226 \
   -e SIMPLEX_SOCAT_PORT=5226 \
-  ghcr.io/libre-7/simplex-bridge:v1.0.1
+  ghcr.io/libre-7/simplex-bridge:latest
 
 # Verify only loopback answers (expect HTTP/1.1 101):
 curl -i -H "Upgrade: websocket" -H "Connection: Upgrade" \
@@ -116,7 +119,7 @@ docker network create simplex-net
 # Bot: socat exposed ONLY inside the shared network (no -p publish at all)
 docker run -d --name simplex-bridge --network simplex-net \
   -e SIMPLEX_SOCAT_PORT=5226 \
-  ghcr.io/libre-7/simplex-bridge:v1.0.1
+  ghcr.io/libre-7/simplex-bridge:latest
 
 mkdir -p ./secnginx && cd ./secnginx
 printf 'botuser:%s\n' "$(openssl passwd -apr1 'CHANGE-ME')" > .htpasswd
@@ -201,8 +204,10 @@ docker exec hermes-webui /app/venv/bin/hermes gateway restart
 
 The script:
 1. Installs the `websockets` Python package (not bundled in the Hermes image)
-2. Auto-detects whether the adapter's DM send path is already fixed upstream (Hermes 0.20.0+); patches it only for older builds
+2. Verifies the adapter's DM send path already uses the structured `/_send … json` format, and **exits non-zero** if the adapter is an unrecognised version
 3. Verifies the plugin is discoverable
+
+> **The script no longer patches the adapter.** Older versions of this script rewrote `adapter.py` in place with `sed -i` to work around [upstream issue #46265](https://github.com/NousResearch/hermes-agent/issues/46265). That patching was removed: it silently no-op'd once the adapter was refactored (so it "succeeded" while doing nothing), a bad edit could raise a `SyntaxError` that breaks the gateway's plugin import, and container rebuilds reverted it anyway. The upstream fix has shipped natively since Hermes 0.20.0 — upgrade rather than patch.
 
 **Re-run after every Hermes container update or rebuild** — `websockets` is installed into the ephemeral container image and the auto-detect/patch step re-evaluates the installed adapter.
 
@@ -307,7 +312,7 @@ Share this once with each contact via any other channel (email, another messenge
 Yes — any program that speaks WebSocket JSON can use the API. See the [SimpleX Bot API docs](https://github.com/simplex-chat/simplex-chat/blob/stable/bots/README.md).
 
 **Q: What platforms does this support?**
-`linux/amd64` only. The `simplex-chat` upstream binary is distributed as an x86_64 Ubuntu executable — no ARM64 build is published.
+`linux/amd64` and `linux/arm64`. The image is published as a multi-arch manifest list, and the Dockerfile selects the matching `simplex-chat` release asset (`simplex-chat-ubuntu-24_04-x86_64` or `-aarch64`) and verifies its per-arch SHA256 at build time. Both registries carry the same platform set.
 
 **Q: How is this different from a Telegram/Discord bot?**
 SimpleX has no central servers that know who users are. No phone numbers, no usernames, no IPs logged. Your bot exists on a peer-to-peer network where only your contacts know it exists.
@@ -327,7 +332,19 @@ docker run --rm --network host -v $PWD/data:/data simplex-bridge
 
 ## License
 
-GNU General Public License v3.0
+This project is licensed under the GNU General Public License v3.0 (see [`LICENSE`](LICENSE)).
+
+### Bundled third-party components
+
+The container image redistributes prebuilt binaries that carry **their own licenses**, which are not superseded by this project's license:
+
+| Component | License | Source |
+|-----------|---------|--------|
+| [simplex-chat](https://github.com/simplex-chat/simplex-chat) `v7.0.2` binary | **AGPL-3.0** | https://github.com/simplex-chat/simplex-chat/releases/tag/v7.0.2 |
+| [simplexmq](https://github.com/simplex-chat/simplexmq) (linked into the above) | **AGPL-3.0** | https://github.com/simplex-chat/simplexmq |
+| [gosu](https://github.com/tianon/gosu) `1.19` | MIT | https://github.com/tianon/gosu |
+
+Both `simplex-chat` and `simplexmq` are **AGPL-3.0**. Because this image runs a network service built from AGPL components, the corresponding source is available at the links above, as AGPL-3.0 §13 requires. The image's `org.opencontainers.image.licenses` label is set to `AGPL-3.0` to reflect the terms of the redistributed binaries.
 
 ## Tags Reference
 

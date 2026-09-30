@@ -15,7 +15,10 @@ concurrency:
 env:
   GHCR_IMAGE: ghcr.io/libre-7/simplex-bridge
   DOCKERHUB_IMAGE: libre7/simplex-bridge
-  PLATFORMS: linux/amd64
+  # Multi-arch: upstream publishes simplex-chat-ubuntu-24_04 for BOTH x86_64
+  # and aarch64, and gosu ships a static binary per arch. The Dockerfile
+  # selects asset + SHA256 per TARGETARCH.
+  PLATFORMS: linux/amd64,linux/arm64
 
 jobs:
   lint:
@@ -38,10 +41,25 @@ jobs:
     # docker-compose.yml uses. Without this, a broken cap_drop/no-new-privileges
     # combination ships green: the entrypoint needs CHOWN+SETUID+SETGID and dies
     # on startup, which lint and build steps cannot detect.
+    #
+    # Runs on BOTH published architectures. arm64 executes under QEMU
+    # emulation, which is slow — hence the longer startup window and the
+    # per-platform healthcheck budget. Emulation is not a substitute for
+    # real-hardware testing, but it does prove the arm64 asset, checksum and
+    # entrypoint all work end to end, which is exactly what a single-arch
+    # build could never catch.
+    name: smoke (${{ matrix.platform }})
     runs-on: ubuntu-latest
     needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux/amd64, linux/arm64]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up QEMU (cross-arch emulation)
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -50,7 +68,7 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          platforms: linux/amd64
+          platforms: ${{ matrix.platform }}
           push: false
           load: true
           tags: simplex-bridge:smoke
@@ -68,16 +86,25 @@ jobs:
           # (the in-container healthcheck still probes it via loopback) and avoids
           # binding a port on the shared runner host.
           docker run -d --name simplex-smoke \
+            --platform ${{ matrix.platform }} \
             --network bridge \
             -v simplex-smoke-data:/data \
             --cap-drop ALL \
             --cap-add CHOWN --cap-add SETUID --cap-add SETGID \
             --security-opt no-new-privileges:true \
+            -e SIMPLEX_STARTUP_TIMEOUT=180 \
             simplex-bridge:smoke
 
       - name: Wait for healthy status
         run: |
-          for i in $(seq 1 40); do
+          # Emulated arm64 starts the Haskell daemon far slower than native
+          # amd64, so the poll budget scales with the platform.
+          if [ "${{ matrix.platform }}" = "linux/arm64" ]; then
+            ATTEMPTS=120
+          else
+            ATTEMPTS=40
+          fi
+          for i in $(seq 1 "$ATTEMPTS"); do
             STATE=$(docker inspect --format '{{.State.Health.Status}}' simplex-smoke 2>/dev/null || echo none)
             RUNNING=$(docker inspect --format '{{.State.Running}}' simplex-smoke 2>/dev/null || echo false)
             echo "attempt $i: running=$RUNNING health=$STATE"
@@ -174,14 +201,12 @@ jobs:
           cache-to: type=gha,mode=max
 
       # ── Docker Hub publish — main and tag pushes only, never PRs ──
-      - name: Pull images locally for Docker Hub
-        if: github.event_name != 'pull_request'
-        run: |
-          # Pull each tag we just pushed back to local Docker
-          for tag in $(echo '${{ steps.meta.outputs.tags }}' | tr ',' ' '); do
-            docker pull "$tag" 2>/dev/null
-          done
-
+      # Mirror with `imagetools create` rather than pull+retag+push. A plain
+      # `docker pull` on an amd64 runner resolves only the amd64 manifest, so
+      # retagging and pushing that would REPLACE Docker Hub's multi-arch index
+      # with a single-arch image — arm64 pulls would then fail with
+      # "no matching manifest". imagetools copies the manifest list itself,
+      # preserving every platform and keeping the registries in parity.
       - name: Log in to Docker Hub
         if: github.event_name != 'pull_request'
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -191,13 +216,41 @@ jobs:
         continue-on-error: true
         id: dh-login
 
-      - name: Push to Docker Hub
+      - name: Mirror tags to Docker Hub
         if: github.event_name != 'pull_request' && steps.dh-login.outcome == 'success'
         run: |
-          # Retag and push each tag to Docker Hub
-          TAGS=$(docker images ghcr.io/libre-7/simplex-bridge --format '{{.Tag}}' | grep -v '<none>')
-          for tag in $TAGS; do
-            dh_tag="libre7/simplex-bridge:$tag"
-            docker tag "ghcr.io/libre-7/simplex-bridge:$tag" "$dh_tag"
-            docker push "$dh_tag"
+          for tag in $(echo '${{ steps.meta.outputs.tags }}' | tr ',' ' '); do
+            name="${tag##*:}"
+            src="ghcr.io/libre-7/simplex-bridge:${name}"
+            dst="libre7/simplex-bridge:${name}"
+            echo "Mirroring ${src} -> ${dst}"
+            docker buildx imagetools create --tag "${dst}" "${src}"
           done
+
+      - name: Verify Docker Hub manifest platforms
+        if: github.event_name != 'pull_request' && steps.dh-login.outcome == 'success'
+        run: |
+          # Guard against a silent single-arch regression: both registries must
+          # advertise the same platform set. Parse the human-readable
+          # "Platform:" lines rather than a JSON field path, so this keeps
+          # working across buildx versions. The unknown/unknown entries are the
+          # SBOM/provenance attestation manifests and are filtered out.
+          for repo in "ghcr.io/libre-7/simplex-bridge" "libre7/simplex-bridge"; do
+            echo "=== ${repo}:latest ==="
+            docker buildx imagetools inspect "${repo}:latest" \
+              | grep -E '^\s*Platform:' \
+              | sed 's/.*Platform:\s*//' \
+              | grep -v 'unknown' \
+              | sort | tr '\n' ' '
+            echo
+          done
+          # Both platforms must be present on both registries, or fail loudly.
+          for repo in "ghcr.io/libre-7/simplex-bridge" "libre7/simplex-bridge"; do
+            for plat in linux/amd64 linux/arm64; do
+              if ! docker buildx imagetools inspect "${repo}:latest" | grep -qE "Platform:\s+${plat}\b"; then
+                echo "::error::${repo} is missing ${plat}"
+                exit 1
+              fi
+            done
+          done
+          echo "Both registries advertise linux/amd64 and linux/arm64"
