@@ -163,6 +163,20 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # This job publishes only on push. Every push/mirror step below is gated
+      # `if: github.event_name != 'pull_request'`, so on a PR the job would
+      # otherwise go green having published nothing — a false signal, since
+      # "Build and push" with push:false still reports success. Make the no-op
+      # explicit so a PR's green build job is honestly labelled.
+      - name: Report publishing scope
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "::notice title=PR build is publish-free::This run builds and smoke-tests only."
+            echo "Registry publishing and the cross-registry platform check are skipped on PRs."
+          else
+            echo "Push detected — this run publishes to GHCR and mirrors to Docker Hub."
+          fi
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
@@ -174,6 +188,16 @@ jobs:
             type=sha,format=short,prefix=sha-
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+          # metadata-action infers org.opencontainers.image.licenses from the
+          # GitHub repo's license and OVERRIDES the Dockerfile LABEL via
+          # `labels:`. The repo source is GPL-3.0, but the shipped image
+          # redistributes AGPL-3.0 binaries (simplex-chat, simplexmq), so the
+          # published image was advertising GPL-3.0 despite the Dockerfile
+          # saying AGPL-3.0. Pin it here so the published metadata matches
+          # the terms of the artifact. See README "Bundled third-party
+          # components".
+          labels: |
+            org.opencontainers.image.licenses=AGPL-3.0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
