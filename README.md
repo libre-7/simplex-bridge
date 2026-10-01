@@ -13,7 +13,7 @@ Run a SimpleX Chat bot as a Docker container. On first start it creates a bot pr
 
 📌 **Compatibility note**: `main` targets **Hermes Agent v0.20.0+ (v2026.8.3+)**. That version ships the SimpleX DM send fix natively (`/_send <target> json …`), which this image requires — `install-websockets.sh` verifies it and will exit non-zero on an older adapter rather than patching it. For older Hermes Agent versions (v0.14.x–v0.19.x), use the [`compat-v0.14`](https://github.com/libre-7/simplex-bridge/tree/compat-v0.14) branch.
 
-The latest release is **v1.2.0** — the post-audit release with container startup fixes, a refreshed `ubuntu:24.04` base image, gosu 1.19, and CI that refuses to publish a container that never reaches healthy. v1.1.0 and earlier shipped a `cap_drop: ALL` / no-`cap_add` combination that aborted the container at startup; upgrade to v1.2.0 or later.
+The latest release is **v1.3.0** — multi-arch (`linux/amd64` + `linux/arm64`) plus a full code-review remediation pass. See the [CHANGELOG](CHANGELOG.md) for the complete list. v1.1.0 and earlier shipped a `cap_drop: ALL` / no-`cap_add` combination that aborted the container at startup; upgrade to v1.2.0 or later.
 
 | Registry | Pull Command |
 |----------|-------------|
