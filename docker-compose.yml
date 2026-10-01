@@ -4,6 +4,8 @@ services:
     # v1.1.0 and earlier shipped `cap_drop: ALL` with no `cap_add`, which
     # aborts the container at startup — the entrypoint must chown /data and
     # gosu down to the unprivileged user. Bump this digest when upgrading.
+    # NOTE: v1.2.0 is amd64-only. Multi-arch (linux/arm64) ships from the
+    # next release; re-pin to that tag's digest once it is cut and verified.
     image: ghcr.io/libre-7/simplex-bridge@sha256:7c2d9cd4e5f3b40cce5c36c7aca9b5de3dd1ab40a14aabb86a64fb9fab7761d4 # v1.2.0
     container_name: simplex-bridge
     network_mode: host

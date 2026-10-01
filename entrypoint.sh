@@ -3,7 +3,12 @@ set -e -o pipefail
 
 DATA_DIR="/data"
 DB_PREFIX="$DATA_DIR/simplex"
-DB_FILE="${DB_PREFIX}_v1_chat.db"
+# Upstream's `-d/--database` takes a FILE PREFIX, not a directory: the CLI
+# appends "_chat.db"/"_agent.db" itself (simplex-chat Options/SQLite.hs).
+# So `-d /data/simplex` yields /data/simplex_chat.db — there is no "_v1"
+# unless we leave -d at its default, which resolves to
+# $XDG_DATA_HOME/simplex/simplex_v1 and would not be under /data at all.
+DB_FILE="${DB_PREFIX}_chat.db"
 
 # ── Resolve PUID/PGID ──────────────────────────────────────────────
 PUID="${PUID:-99}"
@@ -78,7 +83,7 @@ FLAGS=(-d "$DATA_DIR/simplex" -p 5225)
 
 # v7.x auto-migrates older DB schemas non-interactively with this flag;
 # without it a v6-era data dir triggers an interactive Continue (y/N) prompt
-# that dies headless.
+# that dies headless. Upstream spelling is --yes-migrate / -y.
 FLAGS+=(-y)
 
 if [ ! -f "$DB_FILE" ]; then
@@ -128,14 +133,33 @@ gosu "$PUID:$PGID" sh -c 'exec simplex-chat "$@" > /data/daemon.log 2>&1' sh "${
 DAEMON_PID=$!
 echo "[entrypoint]   PID: $DAEMON_PID"
 
-for i in $(seq 1 15); do
+# Wait for the daemon to bind 5225. The default (15s) suits native amd64;
+# emulated/slow ARM boards can need longer, so it is env-tunable.
+STARTUP_TIMEOUT="${SIMPLEX_STARTUP_TIMEOUT:-15}"
+case "$STARTUP_TIMEOUT" in
+    ''|*[!0-9]*)
+        echo "[entrypoint] ERROR: SIMPLEX_STARTUP_TIMEOUT must be a positive integer (got: '$STARTUP_TIMEOUT')"
+        exit 1
+        ;;
+esac
+if [ "$STARTUP_TIMEOUT" -lt 1 ]; then
+    echo "[entrypoint] ERROR: SIMPLEX_STARTUP_TIMEOUT must be >= 1 (got: $STARTUP_TIMEOUT)"
+    exit 1
+fi
+
+for i in $(seq 1 "$STARTUP_TIMEOUT"); do
     if ss -tln 2>/dev/null | grep -q :5225; then
         echo "[entrypoint] WebSocket API ready on port 5225"
         break
     fi
-    if [ "$i" -eq 15 ]; then
-        echo "[entrypoint] ERROR: simplex-chat failed to start within 15s"
-        tail -10 "$DATA_DIR/daemon.log"
+    # Gate on the port only. Do NOT test `kill -0 $DAEMON_PID` here: $! is the
+    # PID of the `gosu` wrapper, and it is not a reliable proxy for the
+    # daemon's liveness across the gosu -> sh -> simplex-chat exec chain. An
+    # early-exit check on it fires within milliseconds of launch and kills
+    # healthy startup — which is exactly what CI caught when this was added.
+    if [ "$i" -eq "$STARTUP_TIMEOUT" ]; then
+        echo "[entrypoint] ERROR: simplex-chat failed to start within ${STARTUP_TIMEOUT}s"
+        tail -20 "$DATA_DIR/daemon.log" 2>/dev/null || true
         kill "$DAEMON_PID" 2>/dev/null || true
         exit 1
     fi

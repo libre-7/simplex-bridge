@@ -48,7 +48,8 @@
   <Config Name="SIMPLEX_SOCAT_PORT" Target="SIMPLEX_SOCAT_PORT" Type="Variable" Default="" Description="Optional socat bridge port — MUST be other than 5225 (e.g. 5226); exposes WebSocket on all interfaces. Leave empty for host networking only (127.0.0.1). Unauthenticated: trusted networks only." Mode="" Display="always" Required="false" Mask="false"/>
   <Config Name="SIMPLEX_FILES_ENABLED" Target="SIMPLEX_FILES_ENABLED" Type="Variable" Default="true" Description="Allow file transfers from contacts to the bot" Mode="" Display="advanced" Required="false" Mask="false"/>
   <Config Name="SIMPLEX_MARK_READ" Target="SIMPLEX_MARK_READ" Type="Variable" Default="true" Description="Auto-mark received messages as read" Mode="" Display="advanced" Required="false" Mask="false"/>
-  <Config Name="SIMPLEX_TOR" Target="SIMPLEX_TOR" Type="Variable" Default="false" Description="Route messaging connections through Tor SOCKS5 proxy (requires Tor running on host)" Mode="" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="SIMPLEX_TOR" Target="SIMPLEX_TOR" Type="Variable" Default="false" Description="Route through a local SOCKS5 proxy at :9050 (e.g. Tor). Does NOT configure Tor itself; onion-only routing needs simplex-chat --socks-mode, which this image does not set." Mode="" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="SIMPLEX_STARTUP_TIMEOUT" Target="SIMPLEX_STARTUP_TIMEOUT" Type="Variable" Default="15" Description="Seconds to wait for the daemon to bind port 5225 before failing. Raise on slow or emulated ARM hosts." Mode="" Display="advanced" Required="false" Mask="false"/>
   <Config Name="TZ" Target="TZ" Type="Variable" Default="UTC" Description="Timezone for container logs" Mode="" Display="advanced" Required="false" Mask="false"/>
   <Config Name="PUID" Target="PUID" Type="Variable" Default="99" Description="User ID for file permissions (Unraid default: 99)" Mode="" Display="advanced" Required="false" Mask="false"/>
   <Config Name="PGID" Target="PGID" Type="Variable" Default="100" Description="Group ID for file permissions (Unraid default: 100)" Mode="" Display="advanced" Required="false" Mask="false"/>
@@ -75,6 +76,13 @@
   <LogMaxFile>3</LogMaxFile>
 
   <Changes>
+### 2026.09.29
+- Multi-arch: image now publishes linux/amd64 AND linux/arm64 (upstream simplex-chat ships an aarch64 binary; the Dockerfile picks the per-arch asset and verifies its SHA256).
+- Added SIMPLEX_STARTUP_TIMEOUT (default 15s) for slow or emulated ARM hosts.
+- install-websockets.sh no longer sed-patches the Hermes adapter; it verifies the DM send path and fails loudly on an unrecognised adapter.
+- First-run bot detection now checks the real database path (simplex_chat.db, not simplex_v1_chat.db).
+- Image license label corrected to AGPL-3.0 to match the bundled simplex-chat binary.
+
 ### 2026.09.27
 - Updated for simplex-chat v7.0.2 / image v1.1.0.
 - Container now refuses SIMPLEX_SOCAT_PORT=5225 at startup instead of starting with a dead bridge.
