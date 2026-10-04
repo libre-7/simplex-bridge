@@ -20,6 +20,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import types
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ENTRYPOINT = os.path.join(HERE, "..", "entrypoint.sh")
@@ -113,27 +114,35 @@ def run_case(name, script, user_id, expect_confirmed, expect_cmd_id,
     # Neutralise the on-disk write; we only care about the logic.
     tmpdata = tempfile.mkdtemp()
     src = extract_setup().replace("/data/bot_address.txt", os.path.join(tmpdata, "addr.txt"))
-    src = "import websockets as _w\n_w.connect = fake_ws\n" + src
-    env = dict(os.environ, SIMPLEX_AUTO_ACCEPT=auto_accept)
 
-    import websockets
-    orig = websockets.connect
-    websockets.connect = fake_ws
+    # Inject a stub module named `websockets` so the extracted setup code's
+    # `import websockets` succeeds. The real library is NOT required: the code
+    # under test only calls websockets.connect(...), which is replaced with the
+    # fake below. Depending on the real package would make this suite fail on
+    # any runner that doesn't have it installed.
+    stub_mod = types.ModuleType("websockets")
+    stub_mod.connect = fake_ws
+    stub_mod.__version__ = "stub"
+    prev_mod = sys.modules.get("websockets", "<absent>")
+    sys.modules["websockets"] = stub_mod
+
+    import io
+    import contextlib
+    buf = io.StringIO()
+    code = 0
+    g = {"__name__": "__main__", "asyncio": asyncio, "json": json, "os": os,
+         "sys": sys, "websockets": stub_mod, "fake_ws": fake_ws}
     try:
-        g = {"__name__": "__main__", "asyncio": asyncio, "json": json, "os": os,
-             "sys": sys, "websockets": websockets, "fake_ws": fake_ws}
-        import io
-        import contextlib
-        buf = io.StringIO()
-        code = 0
-        try:
-            with contextlib.redirect_stdout(buf):
-                exec(compile(src, "setup", "exec"), g)
-        except SystemExit as e:
-            code = e.code or 0
-        out = buf.getvalue()
+        with contextlib.redirect_stdout(buf):
+            exec(compile(src, "setup", "exec"), g)
+    except SystemExit as e:
+        code = e.code or 0
     finally:
-        websockets.connect = orig
+        if prev_mod == "<absent>":
+            sys.modules.pop("websockets", None)
+        else:
+            sys.modules["websockets"] = prev_mod
+    out = buf.getvalue()
 
     print(f"\n--- {name} ---")
     for line in out.strip().splitlines():
