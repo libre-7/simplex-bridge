@@ -36,6 +36,35 @@ else
     useradd --system --no-log-init -g simplex -u "$PUID" --create-home simplex
 fi
 
+# ── Port-readiness helper ──────────────────────────────────────────
+# Match a LISTEN socket on an EXACT port. Never use a bare `grep -q :5225`
+# against `ss` output: that is an unanchored substring test, so it also
+# matches 15225, 52250, 52251… Under `network_mode: host` — which this
+# project REQUIRES, because the daemon binds 127.0.0.1 and Hermes must
+# share that loopback — `ss` lists the entire host's listening sockets, not
+# just this container's. An unrelated host service on a port containing
+# "5225" would therefore satisfy the startup gate and declare the
+# WebSocket API ready while simplex-chat is still starting or already dead.
+#
+# BOTH branches below anchor on the exact port, and that is deliberate on
+# both paths:
+#   * `sport = :PORT` is a server-side filter, but we still re-check the
+#     port in awk rather than trusting `grep -q .`. An `ss` that does not
+#     understand the filter prints the WHOLE socket table and exits 0, so
+#     `grep -q .` would match any line and report the wrong port as ready —
+#     the very bug this helper exists to prevent.
+#   * the no-filter call is the same story with the filter removed.
+# Field 4 is Local Address:Port, so requiring the port to end the field is
+# an exact match that tolerates any address form (IPv4, IPv6, wildcard).
+port_listening() {
+    local port="$1"
+    ss -tlnH "sport = :$port" 2>/dev/null |
+        awk -v p=":$port" '$4 ~ p"$" { found=1 } END { exit !found }' &&
+        return 0
+    ss -tlnH 2>/dev/null |
+        awk -v p=":$port" '$4 ~ p"$" { found=1 } END { exit !found }'
+}
+
 # ── Graceful shutdown handler ──────────────────────────────────────
 shutdown() {
     local signal=$1
@@ -148,7 +177,7 @@ if [ "$STARTUP_TIMEOUT" -lt 1 ]; then
 fi
 
 for i in $(seq 1 "$STARTUP_TIMEOUT"); do
-    if ss -tln 2>/dev/null | grep -q :5225; then
+    if port_listening 5225; then
         echo "[entrypoint] WebSocket API ready on port 5225"
         break
     fi
@@ -182,11 +211,17 @@ import websockets
 
 async def setup():
     async with websockets.connect('ws://127.0.0.1:5225', open_timeout=10) as ws:
+        # Ask for the active user first: /user returns activeUser with the
+        # full User object, whose userId is what /_address_settings takes as
+        # its first argument (bots/api/COMMANDS.md:
+        # `/_address_settings <userId> <json(settings)>`). Hardcoding an id
+        # here silently targets the wrong profile whenever it isn't 1.
         await ws.send(json.dumps({'corrId': 's1', 'cmd': '/user'}))
         await asyncio.sleep(1)
         await ws.send(json.dumps({'corrId': 's2', 'cmd': '/ad'}))
         await asyncio.sleep(2)
         address = None
+        user_id = None
         for _ in range(10):
             try:
                 evt = await asyncio.wait_for(ws.recv(), timeout=1)
@@ -194,19 +229,57 @@ async def setup():
                 break
             data = json.loads(evt)
             resp = data.get('resp', {})
-            if resp.get('type') == 'userContactLinkCreated':
+            rtype = resp.get('type')
+            if rtype == 'activeUser':
+                # activeUser carries the profile; prefer the active profile's
+                # id, and only fall back to a single-user profile.
+                user = resp.get('user', {})
+                if user.get('activeUser'):
+                    user_id = user.get('userId')
+                elif user_id is None:
+                    user_id = user.get('userId')
+            elif rtype == 'usersList':
+                users = resp.get('users', [])
+                active = [u for u in users if u.get('activeUser')]
+                if active and user_id is None:
+                    user_id = active[0].get('userId')
+            elif rtype == 'userContactLinkCreated':
                 link = resp.get('connLinkContact', {})
-                address = link.get('connFullLink', link.get('connShortLink', ''))
+                address = link.get('connFullLink') or link.get('connShortLink')
+                if user_id is None:
+                    # The creation event also carries the user.
+                    user_id = (resp.get('user') or {}).get('userId')
         if os.environ.get('SIMPLEX_AUTO_ACCEPT', 'true') == 'true':
-            settings = json.dumps({'businessAddress': False, 'autoAccept': {'acceptIncognito': False}})
-            await ws.send(json.dumps({'corrId': 's3', 'cmd': f'/_address_settings 1 {settings}'}))
-            await asyncio.sleep(1)
-            try:
-                evt = await asyncio.wait_for(ws.recv(), timeout=2)
-                if 'userContactLinkUpdated' in evt:
+            if user_id is None:
+                # Do NOT guess an id: applying settings to the wrong profile
+                # is worse than leaving auto-accept off, and it fails silently.
+                print('[setup] WARNING: could not determine userId — auto-accept NOT configured')
+                print('[setup]          (accept contact requests manually in the SimpleX app)')
+            else:
+                settings = json.dumps({'businessAddress': False,
+                                       'autoAccept': {'acceptIncognito': False}})
+                await ws.send(json.dumps({'corrId': 's3',
+                                          'cmd': f'/_address_settings {user_id} {settings}'}))
+                await asyncio.sleep(1)
+                # Correlate on corrId: the daemon echoes it (Server.hs wraps
+                # every response as {corrId, resp}). Matching on the substring
+                # 'userContactLinkUpdated' alone would accept an unrelated
+                # event and report success for a command that never applied.
+                confirmed = False
+                try:
+                    evt = await asyncio.wait_for(ws.recv(), timeout=3)
+                    r = json.loads(evt)
+                    if r.get('corrId') == 's3' and r.get('resp', {}).get('type') == 'userContactLinkUpdated':
+                        confirmed = True
+                except asyncio.TimeoutError:
+                    pass
+                except json.JSONDecodeError:
+                    pass
+                if confirmed:
                     print('[setup] Auto-accept enabled')
-            except asyncio.TimeoutError:
-                pass
+                else:
+                    print('[setup] WARNING: /_address_settings was not confirmed for '
+                          f'userId {user_id} — auto-accept may not be active')
         if address:
             print(f'[setup] Bot address: {address[:80]}...')
             with open('/data/bot_address.txt', 'w') as f:
@@ -264,7 +337,7 @@ if [ -n "$SIMPLEX_SOCAT_PORT" ]; then
     # Confirm the listener actually came up; otherwise the bridge is dead
     # and only a manual `ss -tln | grep $SIMPLEX_SOCAT_PORT` would reveal it.
     for i in $(seq 1 10); do
-        if ss -tln 2>/dev/null | grep -q ":$SIMPLEX_SOCAT_PORT"; then
+        if port_listening "$SIMPLEX_SOCAT_PORT"; then
             echo "[entrypoint] socat bridge listening on 0.0.0.0:$SIMPLEX_SOCAT_PORT"
             break
         fi

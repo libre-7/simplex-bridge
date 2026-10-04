@@ -24,8 +24,9 @@ Thumbs.db
 # Local test data
 data/
 
-# Docs, CI config, and assets — not needed to build the image
+# Docs, CI config, tests, and assets — not needed to build the image
 README.md
+SECURITY.md
 LICENSE
 icons/
 templates/
@@ -33,3 +34,4 @@ ca_profile.xml
 docker-compose.yml
 .hadolint.yaml
 install-websockets.sh
+tests/

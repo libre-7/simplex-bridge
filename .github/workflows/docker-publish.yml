@@ -34,7 +34,40 @@ jobs:
 
       - name: Lint shell scripts (shellcheck)
         run: |
-          shellcheck entrypoint.sh install-websockets.sh
+          shellcheck entrypoint.sh install-websockets.sh tests/*.sh
+
+      - name: Verify Python sources compile
+        run: |
+          python3 -m py_compile healthcheck.py tests/test-setup-userid.py tests/ss_from_proc.py
+
+      - name: Readiness-gate regression tests (F2)
+        # Creates real TCP listeners and checks port_listening() matches an
+        # EXACT port. Catches a regression to a substring match, which would
+        # let an unrelated host service (e.g. :15225) satisfy the startup gate
+        # under host networking.
+        run: bash tests/test-port-gate.sh
+
+      - name: Installer interpreter tests (F1)
+        # install-websockets.sh must install into the gateway's virtualenv and
+        # verify with that same interpreter. `docker` and `pip` are stubbed, so
+        # this neither needs Docker nor touches the network. It skips (exit 77)
+        # on runners with no Hermes install, since the venv-detection path is
+        # only meaningful inside a Hermes container.
+        run: |
+          set +e
+          bash tests/test-installer-interpreter.sh
+          rc=$?
+          if [ "$rc" -eq 77 ]; then
+            echo "::notice title=Installer interpreter tests skipped::No Hermes interpreter on this runner."
+          elif [ "$rc" -ne 0 ]; then
+            exit "$rc"
+          fi
+
+      - name: First-run setup userId tests (F3)
+        # Drives the real setup block from entrypoint.sh against a fake
+        # WebSocket daemon: the /_address_settings userId must come from the
+        # daemon, and success must be confirmed by corrId correlation.
+        run: python3 tests/test-setup-userid.py
 
   smoke:
     # Builds the image and actually runs it with the same capability set

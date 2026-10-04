@@ -193,7 +193,7 @@ Hermes Agent v0.16.0+ (v2026.6.5+) ships a SimpleX Chat platform plugin. **Herme
 
 For older Hermes builds (v0.16.x–v0.19.x), the adapter had a bug ([upstream issue #46265](https://github.com/NousResearch/hermes-agent/issues/46265)): outbound DMs used the CLI shortcut format `@<id> text`, which the simplex-chat daemon silently rejects over WebSocket — it resolves `@<id>` as a display-name lookup, not a contactId lookup. Replies appeared in the Hermes WebUI but never reached the SimpleX app.
 
-The one-command setup script below installs `websockets` and, **only when the bug is still present** (pre-0.20.0 Hermes), applies the two-line fix to the adapter. On Hermes 0.20.0+ it detects the native fix and skips the patch.
+This one-command setup script installs `websockets` and **verifies** the adapter's DM send path already uses the structured `/_send … json` format. It never modifies the adapter: on an unrecognised version it **exits non-zero** and tells you to upgrade Hermes. See [One-command setup](#one-command-setup) below.
 
 ### One-command setup
 
@@ -203,9 +203,11 @@ docker exec hermes-webui /app/venv/bin/hermes gateway restart
 ```
 
 The script:
-1. Installs the `websockets` Python package (not bundled in the Hermes image)
+1. Installs the `websockets` Python package (not bundled in the Hermes image), **pinned to the same version the bridge image ships** (`17.0.1`; override with `WEBSOCKETS_VERSION=`)
 2. Verifies the adapter's DM send path already uses the structured `/_send … json` format, and **exits non-zero** if the adapter is an unrecognised version
 3. Verifies the plugin is discoverable
+
+> ⚠️ **The script installs into the gateway's virtualenv, not the system Python.** The Hermes gateway runs `/app/venv/bin/python3`, and that venv is created with `include-system-site-packages = false`. Installing `websockets` with a bare `pip` (or into `~/.local`) puts it somewhere the gateway **cannot import**, so the platform fails to load even though the install appeared to succeed. The script therefore resolves the venv interpreter explicitly (`/app/venv`, override with `HERMES_VENV=`) and uses it for both the install and the verification. If it cannot find that interpreter it says so loudly rather than silently falling back.
 
 > **The script no longer patches the adapter.** Older versions of this script rewrote `adapter.py` in place with `sed -i` to work around [upstream issue #46265](https://github.com/NousResearch/hermes-agent/issues/46265). That patching was removed: it silently no-op'd once the adapter was refactored (so it "succeeded" while doing nothing), a bad edit could raise a `SyntaxError` that breaks the gateway's plugin import, and container rebuilds reverted it anyway. The upstream fix has shipped natively since Hermes 0.20.0 — upgrade rather than patch.
 
@@ -235,7 +237,7 @@ Or read `/mnt/user/appdata/simplex-bridge/bot_address.txt`.
 
 Both containers require host networking — simplex-bridge **and** Hermes Agent must share the loopback interface.
 
-This mirrors the [`docker-compose.yml`](docker-compose.yml) shipped in the repo, pinned to the immutable v1.2.0 release by digest:
+This mirrors the [`docker-compose.yml`](docker-compose.yml) shipped in the repo, pinned to the immutable v1.3.0 release by digest:
 
 ```yaml
 services:
@@ -278,7 +280,7 @@ volumes:
 | Key | Value |
 |-----|-------|
 | Name | `simplex-bridge` |
-| Repository | `ghcr.io/libre-7/simplex-bridge:latest` |
+| Repository | `ghcr.io/libre-7/simplex-bridge:v1.3.0` |
 | Network Type | **Host** |
 | Post Arguments | (leave blank) |
 
@@ -322,6 +324,23 @@ Port 5225 for the WebSocket API. Host networking is required — no port mapping
 
 **Q: Can I run multiple bots?**
 Not within one container. The WebSocket port is fixed at 5225 — there is no port variable. To run multiple bots, run separate containers, each with its own `/data` volume and its own network namespace (e.g. separate hosts/VMs). If you use the bridge networking mode, distinct published ports via `SIMPLEX_SOCAT_PORT` are possible (use a port other than 5225; see Network Configuration) — but note that socat mode is unauthenticated; see the warnings in Network Configuration.
+
+## Testing
+
+The regression tests need neither Docker nor network access:
+
+```bash
+bash tests/run-all.sh
+```
+
+This runs shellcheck, syntax and parse checks, and four suites that cover the
+startup readiness gate, the Hermes installer, the first-run setup handshake, and
+documentation/pin consistency. `tests/test-installer-interpreter.sh` needs a
+Hermes installation to exercise interpreter detection and **skips** (exit 77)
+elsewhere; the rest run anywhere.
+
+They are also wired into the `lint` CI job, so a regression fails the build
+rather than waiting for a runtime symptom.
 
 ## Building from Source
 
