@@ -69,6 +69,12 @@ jobs:
         # daemon, and success must be confirmed by corrId correlation.
         run: python3 tests/test-setup-userid.py
 
+      - name: Documentation consistency
+        # --no-network: the live registry-digest check is for a release-time
+        # human check. CI must not fail because Docker Hub is unreachable or
+        # rate-limiting, so the pin is only verified against the files here.
+        run: python3 tests/check-docs.py --no-network
+
   smoke:
     # Builds the image and actually runs it with the same capability set
     # docker-compose.yml uses. Without this, a broken cap_drop/no-new-privileges

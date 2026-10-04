@@ -247,7 +247,7 @@ This mirrors the [`docker-compose.yml`](docker-compose.yml) shipped in the repo,
 ```yaml
 services:
   simplex-bridge:
-    image: ghcr.io/libre-7/simplex-bridge@sha256:07ab3f85082a3d47b0c1baac5095fc97a1d010bea482079ac703903713b737cf # v1.3.1
+    image: ghcr.io/libre-7/simplex-bridge@sha256:74d144379cb5a6ffafb49204b82af07620dfcfc74bfb6fde6d07f6cce8219be6 # v1.3.1
     container_name: simplex-bridge
     network_mode: host
     # The entrypoint starts as root because it must chown /data and use

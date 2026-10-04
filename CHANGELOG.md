@@ -103,6 +103,14 @@ a broken SimpleX platform in place even on the fixed image.
   extracted from the `linux/amd64` layer matches the released source
   byte-for-byte, and both old defects (the substring port grep, the literal
   `/_address_settings 1`) are absent.
+- Release image verified on **both** registries, which agree on the index digest
+  (`sha256:74d14437…`) and carry `linux/amd64` + `linux/arm64`.
+- **A note on digests and reproducibility.** v1.3.1's `rootfs.diff_ids` are
+  *identical* to the post-merge build, yet the index digest differs — only the
+  OCI metadata labels change (`version`, `created`, `revision`), and those are
+  part of the config, hence the manifest, hence the digest. So a content-only
+  comparison will report two "different" images for the same bits. Pin the digest
+  the tag actually resolves to; do not carry one forward by hand.
 - **Deployed and started successfully on a production Unraid host.** This is
   runtime proof that the reworked `port_listening()` gate returns true — a gate
   that never did would have spun until `SIMPLEX_STARTUP_TIMEOUT`.

@@ -53,7 +53,7 @@ python3 tests/test-setup-userid.py
 verdict $? "setup userId tests"
 
 step "docs consistency"
-python3 tests/check-docs.py
+python3 tests/check-docs.py ${CHECK_DOCS_NET:+"$CHECK_DOCS_NET"}
 verdict $? "README matches reality"
 
 printf '\n'

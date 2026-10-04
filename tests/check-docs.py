@@ -38,6 +38,9 @@ check("sed -i" not in installer_code,
 check(not re.search(r">\s*\S*adapter\.py", installer_code),
       "installer never redirects into adapter.py")
 
+DOCKERHUB_NS = "libre7"          # note: NOT the GitHub org name
+DOCKERHUB_NAME = "simplex-bridge"
+
 # 2. Version pins must agree everywhere they appear.
 m = re.search(r"pinned to the immutable (v[\d.]+) release by digest", readme)
 check(m is not None, "README names the pinned release version")
@@ -92,6 +95,32 @@ if m:
     check(re.search(rf"^## \[{re.escape(bare)}\]\s*[—–-]\s*\d{{4}}-\d{{2}}-\d{{2}}",
                     changelog, re.M) is not None,
           f"CHANGELOG has a dated entry for {ver}")
+
+# 7. The pinned digest must be the one the pinned tag actually resolves to.
+#    Carrying a digest forward by hand is error-prone: a rebuild with unchanged
+#    build inputs still yields a NEW index digest when the OCI metadata labels
+#    change (version/created/revision live in the config, hence the manifest).
+#    Verify against the registry, and skip cleanly when offline.
+if m:
+    ver = m.group(1)
+    pin = next(iter(digests), None)
+    if not pin or "--no-network" in sys.argv:
+        print("  ~ skipped registry digest check (offline or --no-network)")
+    else:
+        import json as _json
+        import urllib.request as _u
+        url = (f"https://hub.docker.com/v2/repositories/{DOCKERHUB_NS}/"
+               f"{DOCKERHUB_NAME}/tags/{ver}")
+        try:
+            remote = _json.load(_u.urlopen(
+                _u.Request(url, headers={"User-Agent": "check-docs"}), timeout=20
+            )).get("digest", "")
+            check(remote == "sha256:" + pin,
+                  f"pinned digest is what Docker Hub tag {ver} resolves to"
+                  + ("" if remote == "sha256:" + pin
+                     else f" (registry says {remote[:19]}…, docs say sha256:{pin[:19]}…)"))
+        except Exception as exc:               # offline, rate-limited, renamed…
+            print(f"  ~ skipped registry digest check ({type(exc).__name__})")
 
 print()
 if BAD:
