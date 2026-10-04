@@ -3,6 +3,105 @@
 All notable changes to this project are documented here.
 Versions are image releases; the `vX.Y.Z` git tag builds the same image.
 
+## [Unreleased]
+
+Remediation of the 2026-10-03 code review. No image behaviour change for
+correctly-configured deployments; two of these fixes change failure modes from
+"silently wrong" to "loudly wrong".
+
+### Fixed
+
+- **`install-websockets.sh` installed `websockets` where the gateway could not
+  import it.** The script used bare `pip` / `python3` via `docker exec`, but the
+  gateway runs `/app/venv/bin/python3` in a venv created with
+  `include-system-site-packages = false`. Packages landed in the system
+  interpreter (or a user's `~/.local`), which is **not on the venv's
+  `sys.path`** — so the script installed the dependency, verified it with the
+  same wrong interpreter, reported success, and left the SimpleX platform
+  unable to load. It now resolves the gateway interpreter explicitly
+  (`HERMES_VENV`, default `/app/venv`) and uses it for both the install and the
+  verification; the install is pinned to the image's `websockets` version
+  (`WEBSOCKETS_VERSION`, default `17.0.1`) instead of tracking latest; and a
+  missing venv produces a loud warning rather than a silent fallback.
+- **The adapter check silently skipped.** It located the adapter with
+  `import plugins.platforms.simplex.adapter` under the wrong interpreter, then
+  fell back to `find /app/venv -path '*/simplex/adapter.py'` — which returns
+  nothing on a current Hermes layout, where the plugin lives in a source
+  checkout (`/app/hermes-agent-src`). The script printed "skipping DM send
+  verification" and exited 0, so the verification added in v1.3.0 never ran. It
+  now imports with the gateway interpreter and falls back to a filesystem-wide
+  search, and it says on stderr that an unverified state is not a verified one.
+- **Readiness gates matched any port *containing* the number.** Both the
+  startup gate and the socat gate used `ss -tln | grep -q :5225`, an
+  unanchored substring test that also matches 15225, 52250, 52251…. Under
+  `network_mode: host` — which this project requires — `ss` lists the entire
+  host's listening sockets, so an unrelated service could satisfy the gate and
+  report the WebSocket API ready while the daemon was dead. A shared
+  `port_listening()` helper now anchors on an exact port on **both** code paths:
+  the `sport = :PORT` filter is re-verified with awk rather than trusted via
+  `grep -q .`, because an `ss` that does not understand the filter prints the
+  whole socket table and `grep -q .` would match any line.
+- **First-run auto-accept targeted a hardcoded id and never checked the
+  result.** `/_address_settings 1 …` used a literal `1`; the daemon's contract
+  is `/_address_settings <userId> <json(settings)>` (bots/api/COMMANDS.md), and
+  the id is now read from the `/user` (`activeUser`) response, with a
+  `userContactLinkCreated` / `usersList` fallback. Success was detected by
+  searching any event for the substring `userContactLinkUpdated`; it now
+  correlates the `corrId` the daemon echoes (`Server.hs` wraps every response
+  as `{corrId, resp}`). When no id can be determined the step is skipped with a
+  warning rather than applied to a guessed profile.
+- **`base-refresh.yml` could not succeed.** The digest step called `skopeo`,
+  which is not installed on `ubuntu-latest` and had no install step, so the
+  output could be empty — and with no `set -e` that failure was silent. It now
+  uses the preinstalled `docker buildx imagetools inspect`, sets
+  `set -euo pipefail`, and fails loudly on an empty digest instead of opening a
+  PR with a blank value.
+- **README contradicted itself about the installer.** Line 196 still described
+  the removed `sed -i` adapter patching, fourteen lines below the note saying it
+  was removed. Rewritten to match, plus a new warning explaining why the
+  installer targets the gateway venv.
+- **Unraid template floated `:latest`** while compose pinned a digest, so
+  Unraid's Update button could silently jump versions. Now pinned to `v1.3.0`
+  (a tag rather than a digest: the Unraid template schema does not reliably
+  round-trip a digest through `Repository`). README install instructions updated
+  to match.
+
+### Added
+
+- **`SECURITY.md`** — private vulnerability-reporting path, plus an explicit
+  statement of the deployment model: the WebSocket API has **no
+  authentication**, the default bind is loopback-only, and setting
+  `SIMPLEX_SOCAT_PORT` removes that protection.
+- **Regression tests** (`tests/`, no Docker required) covering the two High and
+  one Medium code fixes, wired into the `lint` CI job so they cannot rot:
+  - `test-port-gate.sh` — creates **real** TCP listeners and asserts
+    `port_listening()` matches an exact port, including the decoy-port case and
+    the no-`ss` fail-closed case.
+  - `test-installer-interpreter.sh` — stubs `docker` and `pip` and asserts the
+    installer uses only absolute venv paths, pins the version, finds an adapter
+    outside the venv, and **fails** on an unrecognised adapter.
+  - `test-setup-userid.py` — drives the real setup block from `entrypoint.sh`
+    against a fake WebSocket daemon, including a wrong-`corrId` decoy that the
+    old substring match would have accepted as success.
+  - `check-docs.py` — version/digest pin agreement across README, compose, and
+    the Unraid template, and that documented env vars exist in code.
+  - `run-all.sh` — runs every gate.
+
+### Verified
+
+- All three behavioural test suites were checked against deliberately
+  re-introduced versions of each bug (mutation testing) and failed as expected,
+  then passed again on restore — so they detect the defects they guard.
+- `shellcheck` clean across `entrypoint.sh`, `install-websockets.sh`, and
+  `tests/*.sh`.
+
+### Not verified
+
+- No container was built or booted for this batch (no Docker CLI available).
+  Runtime behaviour of the fixed entrypoint paths — socat bridge startup,
+  first-run setup against live SMP servers, real-silicon ARM64 — is unproven
+  here and remains covered only by the existing CI smoke matrix.
+
 ## [1.3.0] — 2026-10-01
 
 Multi-arch release plus remediation of a full code review (2026-09-29).

@@ -1,7 +1,17 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>simplex-bridge</Name>
-  <Repository>ghcr.io/libre-7/simplex-bridge:latest</Repository>
+  <!-- Pinned to the v1.3.0 release rather than :latest. Floating :latest
+       makes Unraid's Update button pull whatever main currently is, so a
+       user can silently jump versions (including back to a build with a
+       broken cap_drop set). A tag is used rather than a @sha256: digest
+       because the Unraid template schema does not reliably round-trip a
+       digest through its Repository field; v1.3.0 is immutable in git, and
+       the compose file in this repo pins the exact digest for anyone who
+       wants byte-level pinning. Bump this tag when upgrading, and verify
+       with:
+         docker buildx imagetools inspect ghcr.io/libre-7/simplex-bridge:v1.3.0 -->
+  <Repository>ghcr.io/libre-7/simplex-bridge:v1.3.0</Repository>
   <Registry>https://ghcr.io</Registry>
   <Network>host</Network>
   <MyIP/>
@@ -76,6 +86,11 @@
   <LogMaxFile>3</LogMaxFile>
 
   <Changes>
+### 2026.10.03
+- Template now pins v1.3.0 instead of floating :latest, so Update cannot silently jump versions. Bump the Repository tag when upgrading.
+- Startup readiness checks now match the exact port. Previously a service on a port merely CONTAINING 5225 (e.g. 15225) could satisfy the check and report the API ready while the daemon was dead — reachable under host networking, where the container sees the whole host's listening sockets.
+- First-run auto-accept now targets the real userId read from the daemon, and confirms the change by correlating the response id instead of matching an event substring. It warns rather than reporting success when the id cannot be determined or the update is not confirmed.
+
 ### 2026.09.29
 - Multi-arch: image now publishes linux/amd64 AND linux/arm64 (upstream simplex-chat ships an aarch64 binary; the Dockerfile picks the per-arch asset and verifies its SHA256).
 - Added SIMPLEX_STARTUP_TIMEOUT (default 15s) for slow or emulated ARM hosts.
