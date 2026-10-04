@@ -13,7 +13,12 @@ Run a SimpleX Chat bot as a Docker container. On first start it creates a bot pr
 
 📌 **Compatibility note**: `main` targets **Hermes Agent v0.20.0+ (v2026.8.3+)**. That version ships the SimpleX DM send fix natively (`/_send <target> json …`), which this image requires — `install-websockets.sh` verifies it and will exit non-zero on an older adapter rather than patching it. For older Hermes Agent versions (v0.14.x–v0.19.x), use the [`compat-v0.14`](https://github.com/libre-7/simplex-bridge/tree/compat-v0.14) branch.
 
-The latest release is **v1.3.0** — multi-arch (`linux/amd64` + `linux/arm64`) plus a full code-review remediation pass. See the [CHANGELOG](CHANGELOG.md) for the complete list. v1.1.0 and earlier shipped a `cap_drop: ALL` / no-`cap_add` combination that aborted the container at startup; upgrade to v1.2.0 or later.
+The latest release is **v1.3.1** — multi-arch (`linux/amd64` + `linux/arm64`) plus two code-review remediation passes. v1.3.1 fixes two defects that made the bridge fail *silently*: `install-websockets.sh` installed `websockets` into the system Python, which the gateway venv cannot import (so the script reported success over a platform that would not load), and the startup readiness gates matched any port *containing* `5225`. See the [CHANGELOG](CHANGELOG.md) for the complete list.
+
+> **Upgrading from v1.3.0 or earlier? Re-run `install-websockets.sh`.** The earlier script installed the dependency into the wrong Python, so an install performed before v1.3.1 leaves a broken SimpleX platform in place even on the fixed image. Verify with:
+> `docker exec <container> /app/venv/bin/python3 -c "import websockets; print(websockets.__version__)"`
+
+v1.1.0 and earlier shipped a `cap_drop: ALL` / no-`cap_add` combination that aborted the container at startup; upgrade to v1.2.0 or later.
 
 | Registry | Pull Command |
 |----------|-------------|
@@ -237,12 +242,12 @@ Or read `/mnt/user/appdata/simplex-bridge/bot_address.txt`.
 
 Both containers require host networking — simplex-bridge **and** Hermes Agent must share the loopback interface.
 
-This mirrors the [`docker-compose.yml`](docker-compose.yml) shipped in the repo, pinned to the immutable v1.3.0 release by digest:
+This mirrors the [`docker-compose.yml`](docker-compose.yml) shipped in the repo, pinned to the immutable v1.3.1 release by digest:
 
 ```yaml
 services:
   simplex-bridge:
-    image: ghcr.io/libre-7/simplex-bridge@sha256:03645909a810201b2a4297834969ead6118f3f9cad99fede1f5f2ac4947c4244 # v1.3.0
+    image: ghcr.io/libre-7/simplex-bridge@sha256:07ab3f85082a3d47b0c1baac5095fc97a1d010bea482079ac703903713b737cf # v1.3.1
     container_name: simplex-bridge
     network_mode: host
     # The entrypoint starts as root because it must chown /data and use
@@ -280,7 +285,7 @@ volumes:
 | Key | Value |
 |-----|-------|
 | Name | `simplex-bridge` |
-| Repository | `ghcr.io/libre-7/simplex-bridge:v1.3.0` |
+| Repository | `ghcr.io/libre-7/simplex-bridge:v1.3.1` |
 | Network Type | **Host** |
 | Post Arguments | (leave blank) |
 

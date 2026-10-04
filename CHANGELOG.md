@@ -3,11 +3,16 @@
 All notable changes to this project are documented here.
 Versions are image releases; the `vX.Y.Z` git tag builds the same image.
 
-## [Unreleased]
+## [1.3.1] — 2026-10-04
 
 Remediation of the 2026-10-03 code review. No image behaviour change for
 correctly-configured deployments; two of these fixes change failure modes from
 "silently wrong" to "loudly wrong".
+
+**Upgrade note:** if you ran `install-websockets.sh` on v1.3.0 or earlier, re-run
+it after upgrading. That script installed `websockets` into the wrong Python
+(see the first entry below), so an install performed before this release leaves
+a broken SimpleX platform in place even on the fixed image.
 
 ### Fixed
 
@@ -61,10 +66,10 @@ correctly-configured deployments; two of these fixes change failure modes from
   was removed. Rewritten to match, plus a new warning explaining why the
   installer targets the gateway venv.
 - **Unraid template floated `:latest`** while compose pinned a digest, so
-  Unraid's Update button could silently jump versions. Now pinned to `v1.3.0`
-  (a tag rather than a digest: the Unraid template schema does not reliably
-  round-trip a digest through `Repository`). README install instructions updated
-  to match.
+  Unraid's Update button could silently jump versions. Now pinned to the
+  release tag (a tag rather than a digest: the Unraid template schema does not
+  reliably round-trip a digest through `Repository`). README install
+  instructions updated to match.
 
 ### Added
 
@@ -94,13 +99,22 @@ correctly-configured deployments; two of these fixes change failure modes from
   then passed again on restore — so they detect the defects they guard.
 - `shellcheck` clean across `entrypoint.sh`, `install-websockets.sh`, and
   `tests/*.sh`.
+- The published image was checked, not just its CI status: `entrypoint.sh`
+  extracted from the `linux/amd64` layer matches the released source
+  byte-for-byte, and both old defects (the substring port grep, the literal
+  `/_address_settings 1`) are absent.
+- **Deployed and started successfully on a production Unraid host.** This is
+  runtime proof that the reworked `port_listening()` gate returns true — a gate
+  that never did would have spun until `SIMPLEX_STARTUP_TIMEOUT`.
 
 ### Not verified
 
-- No container was built or booted for this batch (no Docker CLI available).
-  Runtime behaviour of the fixed entrypoint paths — socat bridge startup,
-  first-run setup against live SMP servers, real-silicon ARM64 — is unproven
-  here and remains covered only by the existing CI smoke matrix.
+- The production run above exercised **container startup**, not the SimpleX
+  platform end to end. A container can start while the platform still cannot
+  import `websockets` (that is F1's whole failure mode), so confirm the
+  platform itself loads and DMs send.
+- First-run auto-accept against **live SMP servers**, and real-silicon ARM64
+  (CI covers ARM64 under emulation only), remain unproven here.
 
 ## [1.3.0] — 2026-10-01
 

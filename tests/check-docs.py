@@ -77,6 +77,22 @@ try:
 except FileNotFoundError:
     check(False, "SECURITY.md exists")
 
+# 7. The released version must be the one documented as latest — in the
+# README headline and as a dated CHANGELOG entry. Without this, a release can
+# ship with docs still describing the previous version as current.
+if m:
+    ver = m.group(1)
+    headline = re.search(r"latest release is \*\*(v[\d.]+)\*\*", readme)
+    check(headline is not None and headline.group(1) == ver,
+          f"README headline calls {ver} the latest release")
+    changelog = open("CHANGELOG.md").read()
+    # CHANGELOG headings drop the leading "v" (## [1.3.1] — 2026-10-04) and
+    # separate the date with an em-dash, so match either separator.
+    bare = ver.lstrip("v")
+    check(re.search(rf"^## \[{re.escape(bare)}\]\s*[—–-]\s*\d{{4}}-\d{{2}}-\d{{2}}",
+                    changelog, re.M) is not None,
+          f"CHANGELOG has a dated entry for {ver}")
+
 print()
 if BAD:
     print(f"=== {len(BAD)} doc check(s) failed ===")

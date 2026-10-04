@@ -1,13 +1,13 @@
 services:
   simplex-bridge:
-    # Pinned to the immutable v1.3.0 release (commit c41e260) by digest.
+    # Pinned to the immutable v1.3.1 release by digest.
     # v1.1.0 and earlier shipped `cap_drop: ALL` with no `cap_add`, which
     # aborts the container at startup — the entrypoint must chown /data and
     # gosu down to the unprivileged user. Bump this digest when upgrading.
     # This digest is the multi-arch OCI INDEX, so it resolves to the correct
     # amd64 or arm64 image per host. Bump it when upgrading; verify with:
-    #   docker buildx imagetools inspect ghcr.io/libre-7/simplex-bridge:v1.3.0
-    image: ghcr.io/libre-7/simplex-bridge@sha256:03645909a810201b2a4297834969ead6118f3f9cad99fede1f5f2ac4947c4244 # v1.3.0
+    #   docker buildx imagetools inspect ghcr.io/libre-7/simplex-bridge:v1.3.1
+    image: ghcr.io/libre-7/simplex-bridge@sha256:07ab3f85082a3d47b0c1baac5095fc97a1d010bea482079ac703903713b737cf # v1.3.1
     container_name: simplex-bridge
     network_mode: host
     # The entrypoint starts as root because it must (a) chown /data to
